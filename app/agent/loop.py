@@ -1,0 +1,336 @@
+"""Stateful agent loop: THINK → ACT/ASK/RESPOND → EVALUATE → … → DONE.
+
+The model proposes JSON. Python validates, traces, and stops on budgets.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import time
+import uuid
+from dataclasses import dataclass, field
+from enum import StrEnum
+from typing import Any, Callable
+
+from pydantic import BaseModel, Field, ValidationError
+
+from app.config import AutonomyLevel, Settings
+from app.conversation import SYSTEM_PROMPT, Conversation
+from app.llm.client import Completer, CompletionResult
+from app.safety.permissions import SafetyLayer
+from app.tools.base import ToolContext, ToolRegistry
+
+ConfirmFn = Callable[[str], bool]
+
+
+class RunStatus(StrEnum):
+    DONE = "DONE"
+    FAILED = "FAILED"
+    BLOCKED = "BLOCKED"
+
+
+class AgentAction(BaseModel):
+    action: str
+    text: str | None = None
+    tool: str | None = None
+    args: dict[str, Any] = Field(default_factory=dict)
+    summary: str = ""
+
+    def normalized_action(self) -> str:
+        return self.action.strip().lower()
+
+
+@dataclass
+class StepRecord:
+    index: int
+    summary: str
+    tool_name: str | None
+    args_hash: str | None
+    risk: str | None
+    result_status: str
+    latency_ms: int
+    observation: str | None = None
+
+
+@dataclass
+class AgentRun:
+    run_id: str
+    goal: str
+    autonomy_level: int
+    status: RunStatus
+    final_text: str
+    steps: list[StepRecord] = field(default_factory=list)
+    input_tokens: int = 0
+    output_tokens: int = 0
+    step_index: int = 0
+
+
+DECISION_INSTRUCTIONS = """You must reply with a single JSON object only (no markdown).
+Shape:
+{"action":"reply"|"tool_call"|"ask_user"|"finish","text":"...","tool":"name or null","args":{},"summary":"safe one-line reason"}
+
+Rules:
+- action=reply: answer the user; put the answer in text.
+- action=tool_call: set tool to an allowed tool name and args to a JSON object matching its schema.
+- action=ask_user: ask a clarifying question in text.
+- action=finish: you are done; put the final answer in text.
+- summary is shown to the user. Do not reveal hidden chain-of-thought. Example: "Selected calculator because the request is arithmetic."
+- Never request secrets.
+"""
+
+
+def _args_hash(args: dict[str, Any]) -> str:
+    blob = json.dumps(args, sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:12]
+
+
+KNOWN_ACTIONS = {"reply", "tool_call", "ask_user", "finish"}
+REPAIR_ERROR_MAX_CHARS = 200
+
+
+def _repair_message(exc: Exception) -> str:
+    """Feedback for a malformed decision. The error is truncated so a huge
+    validation dump cannot flood the context."""
+    error = str(exc)
+    if len(error) > REPAIR_ERROR_MAX_CHARS:
+        error = error[:REPAIR_ERROR_MAX_CHARS] + "…"
+    return (
+        f"Your last reply could not be used: {error}\n"
+        "Reply again with a single JSON object only (no markdown, no prose), shaped like:\n"
+        '{"action":"reply"|"tool_call"|"ask_user"|"finish","text":"...",'
+        '"tool":"name or null","args":{},"summary":"..."}'
+    )
+
+
+def _parse_decision(raw: str) -> AgentAction:
+    text = raw.strip()
+    if not text:
+        raise ValueError("Model output was empty.")
+    if text.startswith("```"):
+        lines = text.splitlines()
+        inner = "\n".join(lines[1:])
+        if inner.rstrip().endswith("```"):
+            inner = inner.rsplit("```", 1)[0]
+        text = inner.strip()
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Model output was not valid JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError("Model JSON must be an object.")
+    decision = AgentAction.model_validate(data)
+    if decision.normalized_action() not in KNOWN_ACTIONS:
+        raise ValueError(f"Unknown action '{decision.action}'.")
+    return decision
+
+
+class AgentLoop:
+    def __init__(
+        self,
+        settings: Settings,
+        llm: Completer,
+        registry: ToolRegistry,
+        safety: SafetyLayer,
+        logger: logging.Logger | None = None,
+        confirm: ConfirmFn | None = None,
+    ) -> None:
+        self.settings = settings
+        self.llm = llm
+        self.registry = registry
+        self.safety = safety
+        self.logger = logger or logging.getLogger("paios.agent")
+        self.confirm = confirm
+        self.tool_ctx = ToolContext()
+
+    def run(self, user_text: str, conversation: Conversation | None = None) -> AgentRun:
+        conv = conversation or Conversation()
+        conv.add_user(user_text)
+        run = AgentRun(
+            run_id=str(uuid.uuid4()),
+            goal=user_text,
+            autonomy_level=int(self.settings.autonomy_level),
+            status=RunStatus.DONE,
+            final_text="",
+        )
+        failure_key: str | None = None
+        identical_failures = 0
+        repair_attempts = 0
+
+        schemas = json.dumps(self.registry.schemas_for_prompt(), indent=2)
+        system = (
+            f"{SYSTEM_PROMPT}\n\n{DECISION_INSTRUCTIONS}\n\n"
+            f"Autonomy level: {int(self.settings.autonomy_level)}.\n"
+            f"Allowed tools:\n{schemas}"
+        )
+        conv.messages[0] = {"role": "system", "content": system}
+
+        while True:
+            if run.step_index >= self.settings.max_steps:
+                run.status = RunStatus.FAILED
+                run.final_text = "Stopped: max steps reached."
+                return run
+            if run.input_tokens + run.output_tokens >= self.settings.max_tokens_per_run:
+                run.status = RunStatus.FAILED
+                run.final_text = "Stopped: token budget reached."
+                return run
+
+            started = time.perf_counter()
+            result = self._think(conv)
+            run.input_tokens += result.input_tokens
+            run.output_tokens += result.output_tokens
+            latency_ms = int((time.perf_counter() - started) * 1000)
+
+            try:
+                decision = _parse_decision(result.text)
+            except (ValueError, ValidationError) as exc:
+                if repair_attempts >= self.settings.max_repair_attempts:
+                    run.status = RunStatus.FAILED
+                    run.final_text = f"Stopped: invalid model output ({exc})."
+                    return run
+                # Malformed output is a formatting slip, not a decision: tell the
+                # model what was wrong and ask again. Bounded by its own counter
+                # (not max_steps) and still charged to the token budget above.
+                repair_attempts += 1
+                run.steps.append(
+                    StepRecord(
+                        index=run.step_index,
+                        summary=f"Repair attempt {repair_attempts}: model output was malformed.",
+                        tool_name=None,
+                        args_hash=None,
+                        risk=None,
+                        result_status="invalid_output",
+                        latency_ms=latency_ms,
+                    )
+                )
+                conv.add_assistant(result.text or "(empty output)")
+                conv.add_user(_repair_message(exc))
+                continue
+            repair_attempts = 0
+
+            action = decision.normalized_action()
+            summary = decision.summary or f"Action: {action}"
+
+            if action in {"reply", "finish"}:
+                text = (decision.text or "").strip() or "(empty reply)"
+                conv.add_assistant(text)
+                run.steps.append(
+                    StepRecord(
+                        index=run.step_index,
+                        summary=summary,
+                        tool_name=None,
+                        args_hash=None,
+                        risk=None,
+                        result_status="ok",
+                        latency_ms=latency_ms,
+                    )
+                )
+                run.final_text = text
+                run.status = RunStatus.DONE
+                run.step_index += 1
+                return run
+
+            if action == "ask_user":
+                text = (decision.text or "").strip() or "Need more information."
+                conv.add_assistant(text)
+                run.steps.append(
+                    StepRecord(
+                        index=run.step_index,
+                        summary=summary,
+                        tool_name=None,
+                        args_hash=None,
+                        risk=None,
+                        result_status="ask_user",
+                        latency_ms=latency_ms,
+                    )
+                )
+                run.final_text = text
+                run.status = RunStatus.BLOCKED
+                run.step_index += 1
+                return run
+
+            observation, step_status, tool_name, risk = self._act(decision)
+            run.steps.append(
+                StepRecord(
+                    index=run.step_index,
+                    summary=summary,
+                    tool_name=tool_name,
+                    args_hash=_args_hash(decision.args),
+                    risk=risk,
+                    result_status=step_status,
+                    latency_ms=latency_ms,
+                    observation=observation,
+                )
+            )
+            self.logger.info(
+                "agent_step",
+                extra={"event": {"run_id": run.run_id, "summary": summary, "status": step_status}},
+            )
+            conv.add_assistant(result.text)
+            conv.add_user(f"Tool observation:\n{observation}")
+            run.step_index += 1
+
+            if step_status in {"denied", "error"}:
+                key = f"{tool_name}:{step_status}:{observation}"
+                if key == failure_key:
+                    identical_failures += 1
+                else:
+                    failure_key = key
+                    identical_failures = 1
+                if identical_failures >= 2:
+                    run.status = RunStatus.FAILED
+                    run.final_text = "Stopped: repeated identical tool failure."
+                    return run
+            else:
+                failure_key = None
+                identical_failures = 0
+
+            if step_status == "suggested":
+                run.status = RunStatus.DONE
+                run.final_text = observation
+                return run
+
+            if step_status == "blocked_confirm":
+                run.status = RunStatus.BLOCKED
+                run.final_text = observation
+                return run
+
+    def _think(self, conv: Conversation) -> CompletionResult:
+        return self.llm.complete(conv.messages)
+
+    def _act(self, decision: AgentAction) -> tuple[str, str, str | None, str | None]:
+        tool_name = decision.tool or ""
+        reviewed = self.safety.review(tool_name, decision.args)
+        tool = reviewed.tool
+        risk = tool.risk.value if tool else None
+
+        if reviewed.decision == "deny":
+            return reviewed.reason, "denied", tool_name or None, risk
+
+        if reviewed.decision == "suggest":
+            args = decision.args
+            msg = (
+                f"Suggested tool '{tool_name}' with args {args}. "
+                f"{reviewed.reason} Raise AUTONOMY_LEVEL or confirm in a future run to execute."
+            )
+            return msg, "suggested", tool_name, risk
+
+        if reviewed.decision == "confirm":
+            prompt = (
+                f"Allow tool '{tool_name}' ({risk}) with args {decision.args}? "
+                f"{reviewed.reason}"
+            )
+            if self.confirm is None or not self.confirm(prompt):
+                return f"Confirmation required: {prompt}", "blocked_confirm", tool_name, risk
+
+        assert tool is not None
+        assert reviewed.parsed_args is not None
+        try:
+            output = tool.run(self.tool_ctx, reviewed.parsed_args)
+            payload = output.model_dump_json()
+            if len(payload.encode("utf-8")) > tool.max_output_bytes:
+                payload = payload[: tool.max_output_bytes] + "…[truncated]"
+            return payload, "ok", tool_name, risk
+        except Exception as exc:  # noqa: BLE001 — tool errors become observations
+            return f"Tool error: {exc}", "error", tool_name, risk
