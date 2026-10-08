@@ -49,6 +49,7 @@ def env_file(monkeypatch, tmp_path):
         "AUTONOMY_LEVEL",
         "MAX_STEPS",
         "MAX_TOKENS_PER_RUN",
+        "MAX_REPAIR_ATTEMPTS",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
@@ -65,6 +66,8 @@ def env_file(monkeypatch, tmp_path):
         ("MAX_STEPS", "100"),  # integer, but above the allowed maximum of 50
         ("MAX_STEPS", "0"),  # integer, but below the allowed minimum of 1
         ("MAX_TOKENS_PER_RUN", "lots"),
+        ("MAX_REPAIR_ATTEMPTS", "6"),  # above the allowed maximum of 5
+        ("MAX_REPAIR_ATTEMPTS", "-1"),
         ("AUTONOMY_LEVEL", "9"),
         ("AUTONOMY_LEVEL", "high"),
         ("OPENAI_API_STYLE", "rpc"),
