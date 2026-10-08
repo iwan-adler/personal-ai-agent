@@ -1,6 +1,6 @@
 import json
 
-from app.agent.loop import AgentLoop, RunStatus
+from app.agent.loop import REPAIR_REPLY_MAX_CHARS, AgentLoop, RunStatus
 from app.config import AutonomyLevel, Settings
 from app.conversation import Conversation
 from app.llm.client import FakeLLMClient
@@ -111,6 +111,29 @@ def test_zero_repair_attempts_fails_immediately():
     run = loop.run("hi")
     assert run.status == RunStatus.FAILED
     assert len(loop.llm.calls) == 1
+
+
+def test_fake_client_snapshots_each_call():
+    good = json.dumps({"action": "reply", "text": "Hello.", "summary": "Greeted the user."})
+    loop = _loop(["nope", good])
+    loop.run("hi")
+    # Each entry reflects the conversation at call time, not the live list.
+    assert len(loop.llm.calls[0]) < len(loop.llm.calls[1])
+
+
+def test_stored_bad_reply_is_capped():
+    good = json.dumps({"action": "reply", "text": "Hello.", "summary": "Greeted the user."})
+    conv = Conversation()
+    _loop(["x" * 5000, good]).run("hi", conv)
+    bad = [m["content"] for m in conv.messages if m["role"] == "assistant"][0]
+    assert bad == "x" * REPAIR_REPLY_MAX_CHARS + "…"
+
+
+def test_repair_records_have_their_own_index():
+    good = json.dumps({"action": "reply", "text": "Hello.", "summary": "Greeted the user."})
+    run = _loop(["nope", "still nope", good]).run("hi")
+    assert [s.result_status for s in run.steps] == ["invalid_output", "invalid_output", "ok"]
+    assert [s.index for s in run.steps] == [0, 1, 2]
 
 
 def test_repaired_tool_call_still_goes_through_safety():

@@ -97,7 +97,8 @@ class FakeLLMClient:
         self.calls: list[list[dict[str, str]]] = []
 
     def complete(self, messages: list[dict[str, str]]) -> CompletionResult:
-        self.calls.append(messages)
+        # Snapshot: the caller keeps mutating its list after this call.
+        self.calls.append([dict(m) for m in messages])
         if self.script is not None:
             text = self.script(messages)
         elif self.replies:

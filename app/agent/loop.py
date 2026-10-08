@@ -88,6 +88,7 @@ def _args_hash(args: dict[str, Any]) -> str:
 
 KNOWN_ACTIONS = {"reply", "tool_call", "ask_user", "finish"}
 REPAIR_ERROR_MAX_CHARS = 200
+REPAIR_REPLY_MAX_CHARS = 500
 
 
 def _repair_message(exc: Exception) -> str:
@@ -195,7 +196,7 @@ class AgentLoop:
                 repair_attempts += 1
                 run.steps.append(
                     StepRecord(
-                        index=run.step_index,
+                        index=len(run.steps),
                         summary=f"Repair attempt {repair_attempts}: model output was malformed.",
                         tool_name=None,
                         args_hash=None,
@@ -204,7 +205,12 @@ class AgentLoop:
                         latency_ms=latency_ms,
                     )
                 )
-                conv.add_assistant(result.text or "(empty output)")
+                # Keep the bad reply for context, but cap it so one runaway
+                # reply cannot flood the conversation.
+                bad_reply = result.text or "(empty output)"
+                if len(bad_reply) > REPAIR_REPLY_MAX_CHARS:
+                    bad_reply = bad_reply[:REPAIR_REPLY_MAX_CHARS] + "…"
+                conv.add_assistant(bad_reply)
                 conv.add_user(_repair_message(exc))
                 continue
             repair_attempts = 0
@@ -217,7 +223,7 @@ class AgentLoop:
                 conv.add_assistant(text)
                 run.steps.append(
                     StepRecord(
-                        index=run.step_index,
+                        index=len(run.steps),
                         summary=summary,
                         tool_name=None,
                         args_hash=None,
@@ -236,7 +242,7 @@ class AgentLoop:
                 conv.add_assistant(text)
                 run.steps.append(
                     StepRecord(
-                        index=run.step_index,
+                        index=len(run.steps),
                         summary=summary,
                         tool_name=None,
                         args_hash=None,
@@ -253,7 +259,7 @@ class AgentLoop:
             observation, step_status, tool_name, risk = self._act(decision)
             run.steps.append(
                 StepRecord(
-                    index=run.step_index,
+                    index=len(run.steps),
                     summary=summary,
                     tool_name=tool_name,
                     args_hash=_args_hash(decision.args),
