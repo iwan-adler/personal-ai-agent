@@ -98,18 +98,18 @@ def _wipe_registry():
 
 def test_none_permissions_rejected():
     """Security: None must never mean 'allow every permission'."""
-    with pytest.raises(TypeError, match="required"):
-        SafetyLayer(build_default_registry(), allowed_permissions=None)
+    with pytest.raises(TypeError, match="allowed_permissions is required"):
+        SafetyLayer(build_default_registry(), allowed_permissions=None, autonomy=AutonomyLevel.AUTO_SAFE)
 
 
 def test_permissions_argument_is_required():
-    with pytest.raises(TypeError):
-        SafetyLayer(build_default_registry())
+    with pytest.raises(TypeError, match="allowed_permissions"):
+        SafetyLayer(build_default_registry(), autonomy=AutonomyLevel.AUTO_SAFE)
 
 
 def test_single_string_permissions_rejected():
     with pytest.raises(TypeError, match="not a single string"):
-        SafetyLayer(build_default_registry(), allowed_permissions="math.eval")
+        SafetyLayer(build_default_registry(), allowed_permissions="math.eval", autonomy=AutonomyLevel.AUTO_SAFE)
 
 
 def test_ungranted_permission_denied_at_highest_autonomy():
@@ -136,3 +136,33 @@ def test_default_grants_cover_builtin_tools():
     registry = build_default_registry()
     for name in registry.names():
         assert registry.get(name).permission in DEFAULT_GRANTS, name
+
+
+# --- The safety layer owns the autonomy level ----------------------------------
+
+
+def test_autonomy_is_required():
+    with pytest.raises(TypeError, match="autonomy"):
+        SafetyLayer(build_default_registry(), allowed_permissions=DEFAULT_GRANTS)
+
+
+def test_invalid_autonomy_rejected():
+    with pytest.raises(ValueError):
+        SafetyLayer(build_default_registry(), allowed_permissions=DEFAULT_GRANTS, autonomy=7)
+
+
+def test_int_autonomy_becomes_enum():
+    layer = SafetyLayer(build_default_registry(), allowed_permissions=DEFAULT_GRANTS, autonomy=3)
+    assert layer.autonomy is AutonomyLevel.AUTO_SAFE
+
+
+def test_autonomy_is_read_only():
+    """Security: the level cannot be raised after the layer is built."""
+    layer = SafetyLayer(
+        build_default_registry(),
+        allowed_permissions=DEFAULT_GRANTS,
+        autonomy=AutonomyLevel.ASK_PERMISSION,
+    )
+    with pytest.raises(AttributeError):
+        layer.autonomy = AutonomyLevel.AUTO_BOUNDED
+    assert layer.autonomy is AutonomyLevel.ASK_PERMISSION

@@ -40,7 +40,7 @@ class SafetyLayer:
         registry: ToolRegistry,
         *,
         allowed_permissions: Collection[str],
-        autonomy: AutonomyLevel = AutonomyLevel.ASK_PERMISSION,
+        autonomy: AutonomyLevel,
     ) -> None:
         # Required, with no "allow everything" value: forgetting it must fail
         # loudly here, not silently grant every permission.
@@ -52,7 +52,14 @@ class SafetyLayer:
         self.registry = registry
         # frozenset copy: later changes to the caller's set cannot add grants.
         self.allowed_permissions = frozenset(allowed_permissions)
-        self.autonomy = autonomy
+        # The single source of the enforced level: the agent loop reads it from
+        # here for the prompt and the trace. Raises ValueError for e.g. 7.
+        self._autonomy = AutonomyLevel(autonomy)
+
+    @property
+    def autonomy(self) -> AutonomyLevel:
+        """Read-only, so the level cannot change between prompt and enforcement."""
+        return self._autonomy
 
     def review(self, tool_name: str, raw_args: dict[str, Any] | None) -> SafetyDecision:
         tool = self.registry.get(tool_name)

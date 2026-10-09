@@ -353,3 +353,26 @@ def test_tool_without_granted_permission_is_denied_in_loop():
     message = _tool_result_message(loop)
     assert message.startswith('<tool_result tool="ungranted" status="denied">')
     assert "should never run" not in message
+
+
+def test_prompt_trace_and_enforcement_use_the_safety_level():
+    """Security: settings say level 3, safety enforces level 1; everything must say 1."""
+    settings = _settings(autonomy_level=AutonomyLevel.AUTO_SAFE)
+    registry = build_default_registry()
+    safety = SafetyLayer(
+        registry,
+        allowed_permissions=DEFAULT_GRANTS,
+        autonomy=AutonomyLevel.SUGGEST_ACTIONS,
+    )
+    loop = AgentLoop(
+        settings=settings,
+        llm=FakeLLMClient(replies=[_call("calculator", {"expression": "1+1"})]),
+        registry=registry,
+        safety=safety,
+    )
+    run = loop.run("1+1")
+    system = loop.llm.calls[0][0]["content"]
+    assert "Autonomy level: 1." in system
+    assert "Autonomy level: 3." not in system
+    assert run.autonomy_level == 1
+    assert run.steps[0].result_status == "suggested"

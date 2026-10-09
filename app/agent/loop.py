@@ -177,10 +177,13 @@ class AgentLoop:
     def run(self, user_text: str, conversation: Conversation | None = None) -> AgentRun:
         conv = conversation or Conversation()
         conv.add_user(user_text)
+        # Read the level from the safety layer, which enforces it, so the prompt,
+        # the trace and enforcement can never disagree.
+        autonomy = int(self.safety.autonomy)
         run = AgentRun(
             run_id=str(uuid.uuid4()),
             goal=user_text,
-            autonomy_level=int(self.settings.autonomy_level),
+            autonomy_level=autonomy,
             status=RunStatus.DONE,
             final_text="",
         )
@@ -191,7 +194,7 @@ class AgentLoop:
         schemas = json.dumps(self.registry.schemas_for_prompt(), indent=2)
         system = (
             f"{SYSTEM_PROMPT}\n\n{DECISION_INSTRUCTIONS}\n\n"
-            f"Autonomy level: {int(self.settings.autonomy_level)}.\n"
+            f"Autonomy level: {autonomy}.\n"
             f"Allowed tools:\n{schemas}"
         )
         conv.messages[0] = {"role": "system", "content": system}
