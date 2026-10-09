@@ -21,7 +21,7 @@ from app.config import AutonomyLevel, Settings
 from app.conversation import SYSTEM_PROMPT, Conversation
 from app.llm.client import Completer, CompletionResult
 from app.safety.permissions import SafetyLayer
-from app.tools.base import ToolContext, ToolRegistry
+from app.tools.base import ToolContext, ToolRegistry, ToolTimeout, run_with_timeout
 
 ConfirmFn = Callable[[str], bool]
 
@@ -309,7 +309,7 @@ class AgentLoop:
             conv.add_user(_wrap_observation(tool_name, step_status, observation))
             run.step_index += 1
 
-            if step_status in {"denied", "error"}:
+            if step_status in {"denied", "error", "timeout"}:
                 key = f"{tool_name}:{step_status}:{observation}"
                 if key == failure_key:
                     identical_failures += 1
@@ -365,10 +365,14 @@ class AgentLoop:
         assert tool is not None
         assert reviewed.parsed_args is not None
         try:
-            output = tool.run(self.tool_ctx, reviewed.parsed_args)
+            output = run_with_timeout(tool, self.tool_ctx, reviewed.parsed_args)
             payload = output.model_dump_json()
             if len(payload.encode("utf-8")) > tool.max_output_bytes:
                 payload = payload[: tool.max_output_bytes] + "…[truncated]"
             return payload, "ok", tool_name, risk
+        except ToolTimeout as exc:
+            # The tool may still finish its action later, so a retry could do it twice.
+            msg = f"{exc} It may still complete; do not retry automatically."
+            return msg, "timeout", tool_name, risk
         except Exception as exc:  # noqa: BLE001 — tool errors become observations
             return f"Tool error: {exc}", "error", tool_name, risk

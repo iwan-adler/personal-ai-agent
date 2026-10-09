@@ -1,8 +1,14 @@
+import math
+import threading
+import time
+
+import pytest
 from pydantic import ValidationError
 
-from app.tools.base import RiskLevel, ToolContext
+from app.tools.base import RiskLevel, Tool, ToolContext, ToolTimeout, run_with_timeout
 from app.tools.builtin import (
     CalculatorInput,
+    CalculatorOutput,
     EchoNoteInput,
     TimeInput,
     build_default_registry,
@@ -54,3 +60,53 @@ def test_builtin_tools_are_safe():
         tool = registry.get(name)
         assert tool is not None
         assert tool.risk == RiskLevel.SAFE
+
+
+# --- Tool timeouts ---------------------------------------------------------------
+
+def _tool(handler, timeout_seconds=1.0) -> Tool:
+    return Tool(
+        name="t",
+        description="test",
+        input_model=CalculatorInput,
+        output_model=CalculatorOutput,
+        permission="test",
+        risk=RiskLevel.SAFE,
+        handler=handler,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+ARGS = CalculatorInput(expression="1")
+
+
+def test_run_with_timeout_returns_result():
+    out = run_with_timeout(_tool(calculator_handler), ToolContext(), ARGS)
+    assert out.result == 1
+
+
+def test_run_with_timeout_reraises_tool_errors():
+    def boom(ctx, args):
+        raise RuntimeError("bad input")
+
+    with pytest.raises(RuntimeError, match="bad input"):
+        run_with_timeout(_tool(boom), ToolContext(), ARGS)
+
+
+def test_hanging_tool_times_out_quickly():
+    """Security: a tool that never returns cannot block the caller."""
+    release = threading.Event()
+    try:
+        tool = _tool(lambda ctx, args: release.wait(30), timeout_seconds=0.1)
+        started = time.perf_counter()
+        with pytest.raises(ToolTimeout, match="0.1s"):
+            run_with_timeout(tool, ToolContext(), ARGS)
+        assert time.perf_counter() - started < 2
+    finally:
+        release.set()  # let the worker thread finish so it does not outlive the test
+
+
+@pytest.mark.parametrize("bad", [0, -1, math.nan])
+def test_tool_rejects_non_positive_timeout(bad):
+    with pytest.raises(ValueError, match="timeout_seconds"):
+        _tool(calculator_handler, timeout_seconds=bad)

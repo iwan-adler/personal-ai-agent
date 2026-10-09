@@ -1,4 +1,6 @@
 import json
+import threading
+import time
 
 from pydantic import BaseModel
 
@@ -376,3 +378,58 @@ def test_prompt_trace_and_enforcement_use_the_safety_level():
     assert "Autonomy level: 3." not in system
     assert run.autonomy_level == 1
     assert run.steps[0].result_status == "suggested"
+
+
+# --- Tool timeouts -----------------------------------------------------------------
+
+
+def _hanging_registry(release: threading.Event) -> ToolRegistry:
+    def hang(ctx, args):
+        release.wait(30)
+        return _TextOut(text="LATE RESULT")
+
+    registry = build_default_registry()
+    registry.register(
+        Tool(
+            name="hang",
+            description="Test tool.",
+            input_model=_NoArgs,
+            output_model=_TextOut,
+            permission="test",
+            risk=RiskLevel.SAFE,
+            handler=hang,
+            timeout_seconds=0.1,
+        )
+    )
+    return registry
+
+
+def test_hanging_tool_cannot_block_the_agent():
+    """Security: a stuck tool becomes a timeout observation; its late result is dropped."""
+    release = threading.Event()
+    conv = Conversation()
+    try:
+        loop = _loop([_call("hang"), FINISH], registry=_hanging_registry(release))
+        started = time.perf_counter()
+        run = loop.run("go", conv)
+        assert time.perf_counter() - started < 2
+        assert run.status == RunStatus.DONE
+        assert run.steps[0].result_status == "timeout"
+        message = _tool_result_message(loop)
+        assert message.startswith('<tool_result tool="hang" status="timeout">')
+        assert "do not retry" in message.lower()
+    finally:
+        release.set()
+    time.sleep(0.05)  # give the worker a moment to finish its (late) return
+    assert all("LATE RESULT" not in m["content"] for m in conv.messages)
+
+
+def test_repeated_timeouts_stop_the_run():
+    release = threading.Event()
+    try:
+        loop = _loop([_call("hang"), _call("hang"), FINISH], registry=_hanging_registry(release))
+        run = loop.run("go")
+        assert run.status == RunStatus.FAILED
+        assert "repeated" in run.final_text.lower()
+    finally:
+        release.set()
