@@ -33,6 +33,22 @@ class Completer(Protocol):
     def complete(self, messages: list[dict[str, str]]) -> CompletionResult: ...
 
 
+# The SDK default is ~10 minutes per attempt. Pinning both values keeps the
+# worst case visible: (1 + LLM_MAX_RETRIES) * LLM_TIMEOUT_SECONDS.
+LLM_MAX_RETRIES = 2
+
+
+def _sdk_kwargs(settings: Settings) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {
+        "api_key": settings.openai_api_key,
+        "timeout": float(settings.llm_timeout_seconds),
+        "max_retries": LLM_MAX_RETRIES,
+    }
+    if settings.openai_base_url:
+        kwargs["base_url"] = settings.openai_base_url
+    return kwargs
+
+
 class LLMClient:
     def __init__(self, settings: Settings, sdk_client: Any | None = None) -> None:
         self._settings = settings
@@ -41,10 +57,7 @@ class LLMClient:
         else:
             from openai import OpenAI
 
-            kwargs: dict[str, Any] = {"api_key": settings.openai_api_key}
-            if settings.openai_base_url:
-                kwargs["base_url"] = settings.openai_base_url
-            self._sdk = OpenAI(**kwargs)
+            self._sdk = OpenAI(**_sdk_kwargs(settings))
 
     def complete(self, messages: list[dict[str, str]]) -> CompletionResult:
         try:

@@ -41,6 +41,7 @@ class Settings(BaseModel):
     max_steps: int = Field(default=8, ge=1, le=50)
     max_tokens_per_run: int = Field(default=50_000, ge=1)
     max_repair_attempts: int = Field(default=2, ge=0, le=5)
+    llm_timeout_seconds: int = Field(default=60, ge=1, le=600)
 
     @field_validator("openai_api_style")
     @classmethod
@@ -122,6 +123,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
             max_steps=_int_env("MAX_STEPS", 8),
             max_tokens_per_run=_int_env("MAX_TOKENS_PER_RUN", 50_000),
             max_repair_attempts=_int_env("MAX_REPAIR_ATTEMPTS", 2),
+            llm_timeout_seconds=_int_env("LLM_TIMEOUT_SECONDS", 60),
         )
     except ValidationError as exc:
         raise ConfigError(_format_settings_error(exc)) from exc
