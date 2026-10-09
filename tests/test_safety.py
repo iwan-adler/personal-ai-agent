@@ -1,43 +1,45 @@
+import pytest
+
 from app.config import AutonomyLevel
-from app.safety.permissions import SafetyLayer
+from app.safety.permissions import DEFAULT_GRANTS, SafetyLayer
 from app.tools.base import RiskLevel, Tool
 from app.tools.builtin import CalculatorInput, CalculatorOutput, build_default_registry, calculator_handler
 
 
 def test_unknown_tool_denied():
-    layer = SafetyLayer(build_default_registry(), autonomy=AutonomyLevel.ASK_PERMISSION)
+    layer = SafetyLayer(build_default_registry(), allowed_permissions=DEFAULT_GRANTS, autonomy=AutonomyLevel.ASK_PERMISSION)
     decision = layer.review("not_a_tool", {})
     assert decision.decision == "deny"
     assert "Unknown" in decision.reason
 
 
 def test_invalid_args_denied():
-    layer = SafetyLayer(build_default_registry(), autonomy=AutonomyLevel.AUTO_SAFE)
+    layer = SafetyLayer(build_default_registry(), allowed_permissions=DEFAULT_GRANTS, autonomy=AutonomyLevel.AUTO_SAFE)
     decision = layer.review("calculator", {})
     assert decision.decision == "deny"
     assert "Invalid arguments" in decision.reason
 
 
 def test_level_zero_blocks_tools():
-    layer = SafetyLayer(build_default_registry(), autonomy=AutonomyLevel.ANSWER_ONLY)
+    layer = SafetyLayer(build_default_registry(), allowed_permissions=DEFAULT_GRANTS, autonomy=AutonomyLevel.ANSWER_ONLY)
     decision = layer.review("calculator", {"expression": "1+1"})
     assert decision.decision == "deny"
 
 
 def test_level_one_suggests():
-    layer = SafetyLayer(build_default_registry(), autonomy=AutonomyLevel.SUGGEST_ACTIONS)
+    layer = SafetyLayer(build_default_registry(), allowed_permissions=DEFAULT_GRANTS, autonomy=AutonomyLevel.SUGGEST_ACTIONS)
     decision = layer.review("calculator", {"expression": "1+1"})
     assert decision.decision == "suggest"
 
 
 def test_level_two_confirms():
-    layer = SafetyLayer(build_default_registry(), autonomy=AutonomyLevel.ASK_PERMISSION)
+    layer = SafetyLayer(build_default_registry(), allowed_permissions=DEFAULT_GRANTS, autonomy=AutonomyLevel.ASK_PERMISSION)
     decision = layer.review("calculator", {"expression": "1+1"})
     assert decision.decision == "confirm"
 
 
 def test_level_three_allows_safe():
-    layer = SafetyLayer(build_default_registry(), autonomy=AutonomyLevel.AUTO_SAFE)
+    layer = SafetyLayer(build_default_registry(), allowed_permissions=DEFAULT_GRANTS, autonomy=AutonomyLevel.AUTO_SAFE)
     decision = layer.review("calculator", {"expression": "1+1"})
     assert decision.decision == "allow"
 
@@ -65,7 +67,72 @@ def test_high_risk_always_confirms():
             handler=calculator_handler,
         )
     )
-    layer = SafetyLayer(registry, autonomy=AutonomyLevel.AUTO_BOUNDED)
+    layer = SafetyLayer(
+        registry,
+        allowed_permissions=DEFAULT_GRANTS | {"danger.wipe"},
+        autonomy=AutonomyLevel.AUTO_BOUNDED,
+    )
     decision = layer.review("wipe", {"expression": "1"})
     assert decision.decision == "confirm"
     assert "HIGH_RISK" in decision.reason
+
+
+# --- Permissions fail closed ---------------------------------------------------
+
+
+def _wipe_registry():
+    registry = build_default_registry()
+    registry.register(
+        Tool(
+            name="wipe",
+            description="test only",
+            input_model=CalculatorInput,
+            output_model=CalculatorOutput,
+            permission="danger.wipe",
+            risk=RiskLevel.SAFE,
+            handler=calculator_handler,
+        )
+    )
+    return registry
+
+
+def test_none_permissions_rejected():
+    """Security: None must never mean 'allow every permission'."""
+    with pytest.raises(TypeError, match="required"):
+        SafetyLayer(build_default_registry(), allowed_permissions=None)
+
+
+def test_permissions_argument_is_required():
+    with pytest.raises(TypeError):
+        SafetyLayer(build_default_registry())
+
+
+def test_single_string_permissions_rejected():
+    with pytest.raises(TypeError, match="not a single string"):
+        SafetyLayer(build_default_registry(), allowed_permissions="math.eval")
+
+
+def test_ungranted_permission_denied_at_highest_autonomy():
+    """Security: a registered tool is denied until its permission is granted."""
+    layer = SafetyLayer(
+        _wipe_registry(),
+        allowed_permissions=DEFAULT_GRANTS,
+        autonomy=AutonomyLevel.AUTO_BOUNDED,
+    )
+    decision = layer.review("wipe", {"expression": "1"})
+    assert decision.decision == "deny"
+    assert "danger.wipe" in decision.reason
+
+
+def test_grants_cannot_be_changed_after_construction():
+    """Security: mutating the caller's set later must not add a grant."""
+    grants = set(DEFAULT_GRANTS)
+    layer = SafetyLayer(_wipe_registry(), allowed_permissions=grants, autonomy=AutonomyLevel.AUTO_BOUNDED)
+    grants.add("danger.wipe")
+    assert layer.review("wipe", {"expression": "1"}).decision == "deny"
+
+
+def test_default_grants_cover_builtin_tools():
+    registry = build_default_registry()
+    for name in registry.names():
+        assert registry.get(name).permission in DEFAULT_GRANTS, name

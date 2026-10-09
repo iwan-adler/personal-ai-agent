@@ -12,7 +12,7 @@ from app.agent.loop import (
 from app.config import AutonomyLevel, Settings
 from app.conversation import Conversation
 from app.llm.client import FakeLLMClient
-from app.safety.permissions import SafetyLayer
+from app.safety.permissions import DEFAULT_GRANTS, SafetyLayer
 from app.tools.base import RiskLevel, Tool, ToolRegistry
 from app.tools.builtin import build_default_registry
 
@@ -37,7 +37,11 @@ def _loop(
 ) -> AgentLoop:
     settings = settings or _settings()
     registry = registry or build_default_registry()
-    safety = SafetyLayer(registry, autonomy=settings.autonomy_level)
+    safety = SafetyLayer(
+        registry,
+        allowed_permissions=DEFAULT_GRANTS | {"test"},
+        autonomy=settings.autonomy_level,
+    )
     return AgentLoop(
         settings=settings,
         llm=FakeLLMClient(replies=replies),
@@ -327,3 +331,25 @@ def test_safe_tool_name_limits():
     assert _safe_tool_name("") == "unknown"
     assert _safe_tool_name(None) == "unknown"
     assert _safe_tool_name("bad name") == "unknown"
+
+
+def test_tool_without_granted_permission_is_denied_in_loop():
+    """Security: registering a tool is not enough; its permission must be granted."""
+    registry = build_default_registry()
+    registry.register(
+        Tool(
+            name="ungranted",
+            description="Test tool.",
+            input_model=_NoArgs,
+            output_model=_TextOut,
+            permission="not.granted",
+            risk=RiskLevel.SAFE,
+            handler=lambda ctx, args: _TextOut(text="should never run"),
+        )
+    )
+    loop = _loop([_call("ungranted"), FINISH], settings=_settings(autonomy_level=AutonomyLevel.AUTO_BOUNDED), registry=registry)
+    run = loop.run("go")
+    assert run.steps[0].result_status == "denied"
+    message = _tool_result_message(loop)
+    assert message.startswith('<tool_result tool="ungranted" status="denied">')
+    assert "should never run" not in message

@@ -5,6 +5,7 @@ The LLM is not trusted. Even a well-formed tool call can be denied.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -20,6 +21,10 @@ class PermissionError(Exception):
 
 Decision = Literal["allow", "confirm", "suggest", "deny"]
 
+# Permissions granted to a normal session. Fail closed: a new tool is denied
+# until its permission is added here on purpose.
+DEFAULT_GRANTS: frozenset[str] = frozenset({"math.eval", "time.read", "memory.session_note"})
+
 
 @dataclass(frozen=True)
 class SafetyDecision:
@@ -33,11 +38,20 @@ class SafetyLayer:
     def __init__(
         self,
         registry: ToolRegistry,
-        allowed_permissions: set[str] | None = None,
+        *,
+        allowed_permissions: Collection[str],
         autonomy: AutonomyLevel = AutonomyLevel.ASK_PERMISSION,
     ) -> None:
+        # Required, with no "allow everything" value: forgetting it must fail
+        # loudly here, not silently grant every permission.
+        if allowed_permissions is None:
+            raise TypeError("allowed_permissions is required; pass DEFAULT_GRANTS or an explicit set.")
+        # A bare string would be iterated letter by letter: "math.eval" -> {"m", "a", ...}.
+        if isinstance(allowed_permissions, str):
+            raise TypeError("allowed_permissions must be a collection of names, not a single string.")
         self.registry = registry
-        self.allowed_permissions = allowed_permissions
+        # frozenset copy: later changes to the caller's set cannot add grants.
+        self.allowed_permissions = frozenset(allowed_permissions)
         self.autonomy = autonomy
 
     def review(self, tool_name: str, raw_args: dict[str, Any] | None) -> SafetyDecision:
@@ -57,7 +71,7 @@ class SafetyLayer:
                 tool=tool,
             )
 
-        if self.allowed_permissions is not None and tool.permission not in self.allowed_permissions:
+        if tool.permission not in self.allowed_permissions:
             return SafetyDecision(
                 decision="deny",
                 reason=f"Permission '{tool.permission}' is not granted this session.",

@@ -9,7 +9,7 @@ from app.config import ConfigError, load_settings
 from app.conversation import Conversation
 from app.llm.client import LLMClient, LLMError
 from app.logging_setup import setup_logging
-from app.safety.permissions import SafetyLayer
+from app.safety.permissions import DEFAULT_GRANTS, SafetyLayer
 from app.tools.builtin import build_default_registry
 
 
@@ -30,7 +30,11 @@ def main() -> int:
 
     logger = setup_logging(settings.log_level)
     registry = build_default_registry()
-    safety = SafetyLayer(registry, autonomy=settings.autonomy_level)
+    safety = SafetyLayer(
+        registry,
+        allowed_permissions=DEFAULT_GRANTS,
+        autonomy=settings.autonomy_level,
+    )
     llm = LLMClient(settings)
     agent = AgentLoop(
         settings=settings,

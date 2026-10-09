@@ -17,7 +17,7 @@ The LLM **proposes**. Python **decides**. Tools **act** only after safety review
 
 ## Why this split
 
-If the model invents a destructive command, it still cannot run unless a registered tool exists, arguments validate, permission is granted, and autonomy/confirmation allow it. Wrapping the vendor SDK lets tests use `FakeLLMClient` so CI never spends money or hits the network.
+If the model invents a destructive command, it still cannot run unless a registered tool exists, arguments validate, permission is granted, and autonomy/confirmation allow it. Permissions fail closed: `SafetyLayer` requires an explicit grant set (`DEFAULT_GRANTS` for a normal session), so a newly registered tool is denied until its permission is granted on purpose. Wrapping the vendor SDK lets tests use `FakeLLMClient` so CI never spends money or hits the network.
 
 ## V0.4+ (not built)
 
