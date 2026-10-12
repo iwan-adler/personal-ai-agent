@@ -17,6 +17,7 @@ from typing import Any, Callable
 
 from pydantic import BaseModel, Field, ValidationError
 
+from app.audit import AuditLog, truncate
 from app.config import AutonomyLevel, Settings
 from app.conversation import SYSTEM_PROMPT, Conversation
 from app.llm.client import Completer, CompletionResult
@@ -165,6 +166,8 @@ class AgentLoop:
         safety: SafetyLayer,
         logger: logging.Logger | None = None,
         confirm: ConfirmFn | None = None,
+        tool_ctx: ToolContext | None = None,
+        audit: AuditLog | None = None,
     ) -> None:
         self.settings = settings
         self.llm = llm
@@ -172,16 +175,69 @@ class AgentLoop:
         self.safety = safety
         self.logger = logger or logging.getLogger("paios.agent")
         self.confirm = confirm
-        self.tool_ctx = ToolContext()
+        self.tool_ctx = tool_ctx or ToolContext()
+        self.audit = audit
 
     def run(self, user_text: str, conversation: Conversation | None = None) -> AgentRun:
+        run_id = str(uuid.uuid4())
+        # The user's text is not logged; only its length.
+        self._audit(
+            "run_start",
+            run_id=run_id,
+            autonomy=int(self.safety.autonomy),
+            goal_chars=len(user_text),
+        )
+        try:
+            run = self._run(run_id, user_text, conversation)
+        except Exception as exc:
+            self._audit("run_end", run_id=run_id, status="ERROR", error=type(exc).__name__)
+            raise
+        self._audit(
+            "run_end",
+            run_id=run_id,
+            status=run.status.value,
+            steps=len(run.steps),
+            input_tokens=run.input_tokens,
+            output_tokens=run.output_tokens,
+            reason=run.final_text if run.status == RunStatus.FAILED else None,
+        )
+        return run
+
+    def _audit(self, event: str, **fields: Any) -> bool:
+        """Write one audit event. Returns False (and logs) if it could not be written."""
+        if self.audit is None:
+            return True
+        try:
+            self.audit.write(event, **fields)
+            return True
+        except OSError:
+            self.logger.exception("audit_write_failed", extra={"event": {"audit_event": event}})
+            return False
+
+    def _add_step(self, run: AgentRun, step: StepRecord) -> None:
+        run.steps.append(step)
+        self._audit(
+            "step",
+            run_id=run.run_id,
+            index=step.index,
+            summary=truncate(step.summary),
+            tool=step.tool_name,
+            args_hash=step.args_hash,
+            risk=step.risk,
+            result_status=step.result_status,
+            latency_ms=step.latency_ms,
+            # Reasons for denials/errors explain decisions; successful output may be personal.
+            detail=truncate(step.observation) if step.result_status != "ok" else None,
+        )
+
+    def _run(self, run_id: str, user_text: str, conversation: Conversation | None) -> AgentRun:
         conv = conversation or Conversation()
         conv.add_user(user_text)
         # Read the level from the safety layer, which enforces it, so the prompt,
         # the trace and enforcement can never disagree.
         autonomy = int(self.safety.autonomy)
         run = AgentRun(
-            run_id=str(uuid.uuid4()),
+            run_id=run_id,
             goal=user_text,
             autonomy_level=autonomy,
             status=RunStatus.DONE,
@@ -226,7 +282,8 @@ class AgentLoop:
                 # model what was wrong and ask again. Bounded by its own counter
                 # (not max_steps) and still charged to the token budget above.
                 repair_attempts += 1
-                run.steps.append(
+                self._add_step(
+                    run,
                     StepRecord(
                         index=len(run.steps),
                         summary=f"Repair attempt {repair_attempts}: model output was malformed.",
@@ -253,7 +310,8 @@ class AgentLoop:
             if action in {"reply", "finish"}:
                 text = (decision.text or "").strip() or "(empty reply)"
                 conv.add_assistant(text)
-                run.steps.append(
+                self._add_step(
+                    run,
                     StepRecord(
                         index=len(run.steps),
                         summary=summary,
@@ -272,7 +330,8 @@ class AgentLoop:
             if action == "ask_user":
                 text = (decision.text or "").strip() or "Need more information."
                 conv.add_assistant(text)
-                run.steps.append(
+                self._add_step(
+                    run,
                     StepRecord(
                         index=len(run.steps),
                         summary=summary,
@@ -288,8 +347,9 @@ class AgentLoop:
                 run.step_index += 1
                 return run
 
-            observation, step_status, tool_name, risk = self._act(decision)
-            run.steps.append(
+            observation, step_status, tool_name, risk = self._act(decision, run)
+            self._add_step(
+                run,
                 StepRecord(
                     index=len(run.steps),
                     summary=summary,
@@ -337,11 +397,26 @@ class AgentLoop:
     def _think(self, conv: Conversation) -> CompletionResult:
         return self.llm.complete(conv.messages)
 
-    def _act(self, decision: AgentAction) -> tuple[str, str, str | None, str | None]:
+    def _act(self, decision: AgentAction, run: AgentRun) -> tuple[str, str, str | None, str | None]:
         tool_name = decision.tool or ""
         reviewed = self.safety.review(tool_name, decision.args)
         tool = reviewed.tool
         risk = tool.risk.value if tool else None
+
+        # Write-ahead: the safety decision is on disk before anything runs. If it
+        # can't be recorded, the tool does not run (fail closed).
+        recorded = self._audit(
+            "tool_review",
+            run_id=run.run_id,
+            index=len(run.steps),
+            tool=_safe_tool_name(tool_name),
+            args_hash=_args_hash(decision.args),
+            risk=risk,
+            decision=reviewed.decision,
+            reason=truncate(reviewed.reason),
+        )
+        if not recorded and reviewed.decision in {"allow", "confirm"}:
+            return "Audit log unavailable; tool not run.", "error", tool_name or None, risk
 
         if reviewed.decision == "deny":
             return reviewed.reason, "denied", tool_name or None, risk
@@ -359,8 +434,19 @@ class AgentLoop:
                 f"Allow tool '{tool_name}' ({risk}) with args {decision.args}? "
                 f"{reviewed.reason}"
             )
-            if self.confirm is None or not self.confirm(prompt):
+            approved = self.confirm is not None and self.confirm(prompt)
+            recorded = self._audit(
+                "tool_confirmation",
+                run_id=run.run_id,
+                index=len(run.steps),
+                tool=_safe_tool_name(tool_name),
+                approved=approved,
+                asked=self.confirm is not None,
+            )
+            if not approved:
                 return f"Confirmation required: {prompt}", "blocked_confirm", tool_name, risk
+            if not recorded:
+                return "Audit log unavailable; tool not run.", "error", tool_name, risk
 
         assert tool is not None
         assert reviewed.parsed_args is not None

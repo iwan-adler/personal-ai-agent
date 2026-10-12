@@ -6,9 +6,12 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ValidationError
+
+if TYPE_CHECKING:
+    from app.memory.tasks import TaskStore
 
 
 class RiskLevel(StrEnum):
@@ -20,6 +23,8 @@ class RiskLevel(StrEnum):
 @dataclass
 class ToolContext:
     notes: list[str] = field(default_factory=list)
+    # Persistent task storage; None means task tools report "not configured".
+    task_store: TaskStore | None = None
 
 
 class ToolTimeout(TimeoutError):

@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+import sqlite3
 import sys
 
 from app.agent.loop import AgentLoop
-from app.config import ConfigError, load_settings
+from app.audit import AuditLog
+from app.config import PROJECT_ROOT, ConfigError, load_settings
 from app.conversation import Conversation
 from app.llm.client import LLMClient, LLMError
 from app.logging_setup import setup_logging
+from app.memory.tasks import TaskStore
 from app.safety.permissions import DEFAULT_GRANTS, SafetyLayer
+from app.tools.base import ToolContext
 from app.tools.builtin import build_default_registry
+from app.tools.tasks import register_task_tools
+
+# Local, gitignored agent data (see .gitignore: data/*.db, data/*.jsonl).
+DATA_DIR = PROJECT_ROOT / "data"
 
 
 def _confirm(prompt: str) -> bool:
@@ -29,7 +37,15 @@ def main() -> int:
         return 1
 
     logger = setup_logging(settings.log_level)
+    try:
+        task_store = TaskStore(DATA_DIR / "agent.db")
+        audit = AuditLog(DATA_DIR / "audit.jsonl")
+    except (OSError, sqlite3.Error) as exc:
+        print(f"Storage error: could not open {DATA_DIR}: {exc}", file=sys.stderr)
+        return 1
+
     registry = build_default_registry()
+    register_task_tools(registry)
     safety = SafetyLayer(
         registry,
         allowed_permissions=DEFAULT_GRANTS,
@@ -43,11 +59,14 @@ def main() -> int:
         safety=safety,
         logger=logger,
         confirm=_confirm,
+        tool_ctx=ToolContext(task_store=task_store),
+        audit=audit,
     )
     conversation = Conversation()
 
     print("Personal AI Agent (quit / exit to stop)")
     print(f"model={settings.openai_model} autonomy={int(settings.autonomy_level)}")
+    print(f"tasks={task_store.path} audit={audit.path}")
     print()
 
     while True:

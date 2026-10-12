@@ -1,6 +1,6 @@
 # Architecture (living document)
 
-This repo implements **V0.1–V0.3** of the Personal AI OS. V0.4+ stays gated until the current slice is used and approved.
+This repo implements **V0.1–V0.3** of the Personal AI OS, plus one V0.4 slice (tasks + audit log, on `feature/task-tracker`). The rest of V0.4+ stays gated until the current slice is used and approved.
 
 ## What exists now
 
@@ -9,9 +9,18 @@ User (CLI)
   → AgentLoop (JSON decisions, max steps, token budget, traces)
       → LLMClient (OpenAI-compatible; secrets stay in the client)
       → SafetyLayer (schema, allowlist, permission, risk vs autonomy)
-      → ToolRegistry (calculator, time_now, echo_note)
+      → ToolRegistry (calculator, time_now, echo_note, task_add, task_list, task_complete)
+      → AuditLog (data/audit.jsonl, append-only, write-ahead for tool decisions)
 Short-term memory: Conversation list in RAM only
+Long-term memory: TaskStore (data/agent.db, SQLite) — tasks only so far
 ```
+
+### Audit trail
+
+Every run writes `run_start` → (`tool_review` → `tool_confirmation`?) → `step`… → `run_end`.
+`tool_review` is written before the tool runs; if the write fails, the tool is refused
+(fail closed). User text, raw args and successful tool output are never written, only
+an args hash and the safety reason, so the file is safe to share when debugging.
 
 The LLM **proposes**. Python **decides**. Tools **act** only after safety review.
 
@@ -25,7 +34,7 @@ Do not add these until the previous milestone is approved:
 
 | Version | What | Why wait |
 |---|---|---|
-| V0.4 | SQLite sessions, facts, tasks | Need a working loop first |
+| V0.4 | SQLite sessions, facts (~~tasks~~ done) | Need a working loop first |
 | V0.5 | GitHub, files, Linux sandbox | Needs safety + confirmations |
 | V0.6 | Knowledge graph, university, tutor | Needs durable facts |
 | V0.7 | Planner, opportunity scout, research | Needs tasks + citations rule |

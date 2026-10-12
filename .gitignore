@@ -26,9 +26,10 @@ Thumbs.db
 .vscode/
 *.swp
 
-# Local agent data (future SQLite)
+# Local agent data (tasks DB, audit log)
 data/*.db
 data/*.db-journal
+data/*.jsonl
 
 .freebuff/
 OneNote Notebooks/

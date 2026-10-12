@@ -2,7 +2,30 @@
 
 A secure, modular **Personal AI Operating System** that starts as a CLI assistant and grows into university, coding, and infrastructure help — one milestone at a time.
 
-Current milestone: **V0.3** (conversation + tools + agent loop). Later memory, GitHub, Linux, tutor, dashboard, and deploy are **not built yet**.
+Current milestone: **V0.3** (conversation + tools + agent loop), plus the first **V0.4** slice: a persistent task list and an audit log. Facts, sessions, GitHub, Linux, tutor, dashboard, and deploy are **not built yet**.
+
+## Tasks (persistent)
+
+Ask in plain language, for example "remind me to submit the DBMS assignment by 2026-10-20", "what's due?" or "mark task 1 done". The model proposes a tool call. Python then validates it, checks permissions and asks you before anything is written.
+
+| Tool | Risk | Permission | Notes |
+|---|---|---|---|
+| `task_list` | SAFE | `tasks.read` | Earliest deadline first |
+| `task_add` | CONFIRMATION | `tasks.write` | `due_date` must be `YYYY-MM-DD` and not in the past; unknown fields rejected |
+| `task_complete` | CONFIRMATION | `tasks.write` | Errors on unknown or already-done ids |
+
+There is no delete tool on purpose.
+
+Data lives in `data/` (gitignored):
+
+- `data/agent.db`: tasks (SQLite)
+- `data/audit.jsonl`: one JSON line per agent event (`run_start`, `tool_review`, `tool_confirmation`, `step`, `run_end`). It records the safety decision and reason, the risk, an args **hash**, the result status and the latency. It never records your messages, raw arguments or successful tool output. The safety decision is written *before* a tool runs; if it can't be written, the tool doesn't run.
+
+Read the audit log:
+
+```powershell
+Get-Content data\audit.jsonl -Tail 20
+```
 
 ## Setup
 
