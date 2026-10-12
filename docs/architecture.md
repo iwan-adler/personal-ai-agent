@@ -1,6 +1,6 @@
 # Architecture (living document)
 
-This repo implements **V0.1–V0.3** of the Personal AI OS, plus one V0.4 slice (tasks + audit log, on `feature/task-tracker`). The rest of V0.4+ stays gated until the current slice is used and approved.
+This repo implements **V0.1–V0.3** of the Personal AI OS, plus one V0.4 slice (tasks + audit log). The rest of V0.4+ stays gated until the current slice is used and approved.
 
 ## What exists now
 
