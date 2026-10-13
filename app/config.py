@@ -98,7 +98,10 @@ def load_settings(env_file: Path | None = None) -> Settings:
     path = env_file or (PROJECT_ROOT / ".env")
     load_dotenv(path, override=False)
 
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    # pop, not getenv: once read, the key lives only in Settings (as a SecretStr).
+    # Left in os.environ, every child process would inherit it, whether it came
+    # from .env (load_dotenv copies it in) or from the shell.
+    api_key = os.environ.pop("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise ConfigError(
             "OPENAI_API_KEY is not set. Copy .env.example to .env in the project root."

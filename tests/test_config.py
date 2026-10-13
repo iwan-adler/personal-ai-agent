@@ -1,3 +1,7 @@
+import os
+import subprocess
+import sys
+
 import pytest
 
 from app.config import AutonomyLevel, ConfigError, Settings, load_settings
@@ -104,3 +108,31 @@ def test_main_reports_bad_config_in_one_line_without_a_traceback(monkeypatch, en
     assert "Config error" in err
     assert "MAX_STEPS" in err
     assert "Traceback" not in err
+
+
+# --- The API key leaves the process environment -------------------------------------
+
+
+def _child_sees_key() -> str:
+    code = "import os; print(os.environ.get('OPENAI_API_KEY', 'absent'))"
+    return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout.strip()
+
+
+def test_key_from_shell_is_removed_from_environ(monkeypatch, env_file):
+    """Security: a key set in the shell is not passed on to child processes."""
+    settings = load_settings(env_file)
+    assert settings.openai_api_key.get_secret_value() == "sk-test"
+    assert "OPENAI_API_KEY" not in os.environ
+    assert _child_sees_key() == "absent"
+
+
+def test_key_from_dotenv_is_removed_from_environ(monkeypatch, tmp_path):
+    """Security: load_dotenv copies .env into os.environ; the key must not stay there."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_MODEL", "unit-model")
+    path = tmp_path / ".env"
+    path.write_text("OPENAI_API_KEY=sk-from-file\n", encoding="utf-8")
+    settings = load_settings(path)
+    assert settings.openai_api_key.get_secret_value() == "sk-from-file"
+    assert "OPENAI_API_KEY" not in os.environ
+    assert _child_sees_key() == "absent"
