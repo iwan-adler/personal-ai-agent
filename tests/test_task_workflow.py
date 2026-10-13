@@ -164,7 +164,8 @@ def test_completing_unknown_task_is_an_error_observation(tmp_path):
 
     assert run.status == RunStatus.DONE
     assert run.steps[0].result_status == "error"
-    assert "Task 42 not found" in env.events("step")[0]["detail"]
+    # Only the exception type is audited; tool exception text can quote input.
+    assert env.events("step")[0]["detail"] == "TaskNotFound"
 
 
 def test_tasks_persist_across_runs_and_sessions(tmp_path):

@@ -54,6 +54,7 @@ class StepRecord:
     result_status: str
     latency_ms: int
     observation: str | None = None
+    error_type: str | None = None
 
 
 @dataclass
@@ -67,6 +68,8 @@ class AgentRun:
     input_tokens: int = 0
     output_tokens: int = 0
     step_index: int = 0
+    # Fixed code for why a run stopped early; safe to audit, unlike final_text.
+    stop_reason: str | None = None
 
 
 DECISION_INSTRUCTIONS = """You must reply with a single JSON object only (no markdown).
@@ -119,6 +122,22 @@ def _wrap_observation(tool_name: str | None, status: str, text: str) -> str:
         f"{_neutralize_tags(text)}\n"
         "</tool_result>"
     )
+
+
+# Statuses whose observation is built only from our own fixed wording (safety
+# reasons use field names and pydantic messages, never input values).
+_AUDITABLE_OBSERVATIONS = {"denied", "timeout"}
+
+
+def _audit_detail(step: StepRecord) -> str | None:
+    """What a step may put in the audit log. Never raw args, tool output or tool
+    exception text: those can contain personal data. suggested/blocked_confirm
+    observations quote the args, and their decision is already in tool_review."""
+    if step.result_status in _AUDITABLE_OBSERVATIONS:
+        return truncate(step.observation)
+    if step.result_status == "error":
+        return step.error_type
+    return None
 
 
 def _repair_message(exc: Exception) -> str:
@@ -199,7 +218,7 @@ class AgentLoop:
             steps=len(run.steps),
             input_tokens=run.input_tokens,
             output_tokens=run.output_tokens,
-            reason=run.final_text if run.status == RunStatus.FAILED else None,
+            reason=run.stop_reason,
         )
         return run
 
@@ -221,13 +240,12 @@ class AgentLoop:
             run_id=run.run_id,
             index=step.index,
             summary=truncate(step.summary),
-            tool=step.tool_name,
+            tool=_safe_tool_name(step.tool_name) if step.tool_name else None,
             args_hash=step.args_hash,
             risk=step.risk,
             result_status=step.result_status,
             latency_ms=step.latency_ms,
-            # Reasons for denials/errors explain decisions; successful output may be personal.
-            detail=truncate(step.observation) if step.result_status != "ok" else None,
+            detail=_audit_detail(step),
         )
 
     def _run(self, run_id: str, user_text: str, conversation: Conversation | None) -> AgentRun:
@@ -259,10 +277,12 @@ class AgentLoop:
             if run.step_index >= self.settings.max_steps:
                 run.status = RunStatus.FAILED
                 run.final_text = "Stopped: max steps reached."
+                run.stop_reason = "max_steps"
                 return run
             if run.input_tokens + run.output_tokens >= self.settings.max_tokens_per_run:
                 run.status = RunStatus.FAILED
                 run.final_text = "Stopped: token budget reached."
+                run.stop_reason = "token_budget"
                 return run
 
             started = time.perf_counter()
@@ -277,6 +297,7 @@ class AgentLoop:
                 if repair_attempts >= self.settings.max_repair_attempts:
                     run.status = RunStatus.FAILED
                     run.final_text = f"Stopped: invalid model output ({exc})."
+                    run.stop_reason = "invalid_output"
                     return run
                 # Malformed output is a formatting slip, not a decision: tell the
                 # model what was wrong and ask again. Bounded by its own counter
@@ -347,7 +368,7 @@ class AgentLoop:
                 run.step_index += 1
                 return run
 
-            observation, step_status, tool_name, risk = self._act(decision, run)
+            observation, step_status, tool_name, risk, error_type = self._act(decision, run)
             self._add_step(
                 run,
                 StepRecord(
@@ -359,6 +380,7 @@ class AgentLoop:
                     result_status=step_status,
                     latency_ms=latency_ms,
                     observation=observation,
+                    error_type=error_type,
                 )
             )
             self.logger.info(
@@ -379,6 +401,7 @@ class AgentLoop:
                 if identical_failures >= 2:
                     run.status = RunStatus.FAILED
                     run.final_text = "Stopped: repeated identical tool failure."
+                    run.stop_reason = "repeated_failure"
                     return run
             else:
                 failure_key = None
@@ -397,7 +420,10 @@ class AgentLoop:
     def _think(self, conv: Conversation) -> CompletionResult:
         return self.llm.complete(conv.messages)
 
-    def _act(self, decision: AgentAction, run: AgentRun) -> tuple[str, str, str | None, str | None]:
+    def _act(
+        self, decision: AgentAction, run: AgentRun
+    ) -> tuple[str, str, str | None, str | None, str | None]:
+        """Returns (observation, status, tool name, risk, error type for the audit log)."""
         tool_name = decision.tool or ""
         reviewed = self.safety.review(tool_name, decision.args)
         tool = reviewed.tool
@@ -416,10 +442,10 @@ class AgentLoop:
             reason=truncate(reviewed.reason),
         )
         if not recorded and reviewed.decision in {"allow", "confirm"}:
-            return "Audit log unavailable; tool not run.", "error", tool_name or None, risk
+            return "Audit log unavailable; tool not run.", "error", tool_name or None, risk, "AuditUnavailable"
 
         if reviewed.decision == "deny":
-            return reviewed.reason, "denied", tool_name or None, risk
+            return reviewed.reason, "denied", tool_name or None, risk, None
 
         if reviewed.decision == "suggest":
             args = decision.args
@@ -427,7 +453,7 @@ class AgentLoop:
                 f"Suggested tool '{tool_name}' with args {args}. "
                 f"{reviewed.reason} Raise AUTONOMY_LEVEL or confirm in a future run to execute."
             )
-            return msg, "suggested", tool_name, risk
+            return msg, "suggested", tool_name, risk, None
 
         if reviewed.decision == "confirm":
             prompt = (
@@ -444,9 +470,9 @@ class AgentLoop:
                 asked=self.confirm is not None,
             )
             if not approved:
-                return f"Confirmation required: {prompt}", "blocked_confirm", tool_name, risk
+                return f"Confirmation required: {prompt}", "blocked_confirm", tool_name, risk, None
             if not recorded:
-                return "Audit log unavailable; tool not run.", "error", tool_name, risk
+                return "Audit log unavailable; tool not run.", "error", tool_name, risk, "AuditUnavailable"
 
         assert tool is not None
         assert reviewed.parsed_args is not None
@@ -455,10 +481,10 @@ class AgentLoop:
             payload = output.model_dump_json()
             if len(payload.encode("utf-8")) > tool.max_output_bytes:
                 payload = payload[: tool.max_output_bytes] + "…[truncated]"
-            return payload, "ok", tool_name, risk
+            return payload, "ok", tool_name, risk, None
         except ToolTimeout as exc:
             # The tool may still finish its action later, so a retry could do it twice.
             msg = f"{exc} It may still complete; do not retry automatically."
-            return msg, "timeout", tool_name, risk
+            return msg, "timeout", tool_name, risk, None
         except Exception as exc:  # noqa: BLE001 — tool errors become observations
-            return f"Tool error: {exc}", "error", tool_name, risk
+            return f"Tool error: {exc}", "error", tool_name, risk, type(exc).__name__

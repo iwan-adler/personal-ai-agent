@@ -19,8 +19,12 @@ Long-term memory: TaskStore (data/agent.db, SQLite) — tasks only so far
 
 Every run writes `run_start` → (`tool_review` → `tool_confirmation`?) → `step`… → `run_end`.
 `tool_review` is written before the tool runs; if the write fails, the tool is refused
-(fail closed). User text, raw args and successful tool output are never written, only
-an args hash and the safety reason, so the file is safe to share when debugging.
+(fail closed). User text, raw args, tool output, tool exception text and model output
+are never written: only an args hash, the safety reason, the exception *type* for tool
+errors, and a fixed `reason` code (`max_steps`, `token_budget`, `invalid_output`,
+`repeated_failure`) when a run stops early. One field is model-written: the step
+`summary` (truncated), kept on purpose because it explains *why* a tool was chosen. It
+can paraphrase what you asked, so skim it before sharing the file.
 
 The LLM **proposes**. Python **decides**. Tools **act** only after safety review.
 
