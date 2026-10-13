@@ -40,13 +40,18 @@ LLM_MAX_RETRIES = 2
 
 def _sdk_kwargs(settings: Settings) -> dict[str, Any]:
     kwargs: dict[str, Any] = {
-        "api_key": settings.openai_api_key,
+        # The only place the real key is read.
+        "api_key": settings.openai_api_key.get_secret_value(),
         "timeout": float(settings.llm_timeout_seconds),
         "max_retries": LLM_MAX_RETRIES,
     }
     if settings.openai_base_url:
         kwargs["base_url"] = settings.openai_base_url
     return kwargs
+
+
+def _redact(text: str, secret: str) -> str:
+    return text.replace(secret, "***") if secret else text
 
 
 class LLMClient:
@@ -67,7 +72,11 @@ class LLMClient:
         except LLMError:
             raise
         except Exception as exc:  # noqa: BLE001 — surface provider errors clearly
-            raise LLMError(f"LLM request failed: {exc}") from exc
+            # Provider errors are not guaranteed to leave the key out, so redact
+            # it, and drop the original exception (from None) so a traceback
+            # cannot show the unredacted text either.
+            message = _redact(str(exc), self._settings.openai_api_key.get_secret_value())
+            raise LLMError(f"LLM request failed: {type(exc).__name__}: {message}") from None
 
     def _complete_chat(self, messages: list[dict[str, str]]) -> CompletionResult:
         response = self._sdk.chat.completions.create(

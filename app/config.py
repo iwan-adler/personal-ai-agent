@@ -13,7 +13,7 @@ from enum import IntEnum
 from pathlib import Path
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, SecretStr, ValidationError, field_validator
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -32,7 +32,9 @@ class AutonomyLevel(IntEnum):
 
 
 class Settings(BaseModel):
-    openai_api_key: str
+    # SecretStr: repr/str/model_dump show '**********', so printing or logging
+    # settings cannot leak the key. Read it only with .get_secret_value().
+    openai_api_key: SecretStr
     openai_model: str
     openai_base_url: str | None = None
     openai_api_style: str = "chat"
