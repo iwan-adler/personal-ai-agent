@@ -488,3 +488,26 @@ def test_loop_tests_write_a_real_audit_log():
     loop.run("hi")
     events = [e["event"] for e in loop.audit.read()]
     assert events == ["run_start", "step", "run_end"]
+
+
+def test_late_finish_of_timed_out_tool_is_audited():
+    """The step says "timeout"; the audit log must also show the action happened later."""
+    release = threading.Event()
+    conv = Conversation()
+    try:
+        loop = _loop([_call("hang"), FINISH], registry=_hanging_registry(release))
+        run = loop.run("go", conv)
+        assert run.steps[0].result_status == "timeout"
+    finally:
+        release.set()
+    deadline = time.monotonic() + 2
+    late = []
+    while not late and time.monotonic() < deadline:
+        late = [e for e in loop.audit.read() if e["event"] == "tool_late_finish"]
+        time.sleep(0.01)
+    assert len(late) == 1
+    assert late[0]["tool"] == "hang"
+    assert late[0]["status"] == "ok"
+    assert late[0]["run_id"] == run.run_id
+    assert all("LATE RESULT" not in m["content"] for m in conv.messages)
+    assert "LATE RESULT" not in loop.audit.path.read_text(encoding="utf-8")

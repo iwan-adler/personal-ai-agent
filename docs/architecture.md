@@ -18,6 +18,8 @@ Long-term memory: TaskStore (data/agent.db, SQLite) — tasks only so far
 ### Audit trail
 
 Every run writes `run_start` → (`tool_review` → `tool_confirmation`?) → `step`… → `run_end`.
+A tool that timed out but completes later adds `tool_late_finish` (`ok` or the exception
+type), because the `timeout` step alone would suggest the action never happened.
 `tool_review` is written before the tool runs; if the write fails, the tool is refused
 (fail closed). User text, raw args, tool output, tool exception text and model output
 are never written: only an args hash, the safety reason, the exception *type* for tool

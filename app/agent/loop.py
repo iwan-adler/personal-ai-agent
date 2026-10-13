@@ -485,7 +485,21 @@ class AgentLoop:
         assert tool is not None
         assert reviewed.parsed_args is not None
         try:
-            output = run_with_timeout(tool, self.tool_ctx, reviewed.parsed_args)
+            index = len(run.steps)
+
+            def on_late_finish(status: str) -> None:
+                # The step already says "timeout"; record that the action happened anyway.
+                self._audit(
+                    "tool_late_finish",
+                    run_id=run.run_id,
+                    index=index,
+                    tool=_safe_tool_name(tool_name),
+                    status=status,
+                )
+
+            output = run_with_timeout(
+                tool, self.tool_ctx, reviewed.parsed_args, on_late_finish=on_late_finish
+            )
             payload = output.model_dump_json()
             if len(payload.encode("utf-8")) > tool.max_output_bytes:
                 payload = payload[: tool.max_output_bytes] + "…[truncated]"

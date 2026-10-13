@@ -110,3 +110,54 @@ def test_hanging_tool_times_out_quickly():
 def test_tool_rejects_non_positive_timeout(bad):
     with pytest.raises(ValueError, match="timeout_seconds"):
         _tool(calculator_handler, timeout_seconds=bad)
+
+
+def _late_tool(release: threading.Event, fail: bool = False) -> Tool:
+    def slow(ctx, args):
+        release.wait(30)
+        if fail:
+            raise ValueError("late failure")
+        return calculator_handler(ctx, args)
+
+    return _tool(slow, timeout_seconds=0.1)
+
+
+@pytest.mark.parametrize(("fail", "expected"), [(False, "ok"), (True, "ValueError")])
+def test_late_finish_is_reported(fail, expected):
+    release = threading.Event()
+    reported = threading.Event()
+    statuses: list[str] = []
+
+    def on_late_finish(status: str) -> None:
+        statuses.append(status)
+        reported.set()
+
+    try:
+        with pytest.raises(ToolTimeout):
+            run_with_timeout(_late_tool(release, fail), ToolContext(), ARGS, on_late_finish=on_late_finish)
+    finally:
+        release.set()
+    assert reported.wait(2)
+    assert statuses == [expected]
+
+
+def test_late_finish_not_reported_when_tool_is_on_time():
+    statuses: list[str] = []
+    run_with_timeout(_tool(calculator_handler), ToolContext(), ARGS, on_late_finish=statuses.append)
+    assert statuses == []
+
+
+def test_failing_late_finish_callback_is_contained():
+    release = threading.Event()
+    done = threading.Event()
+
+    def broken(status: str) -> None:
+        done.set()
+        raise RuntimeError("callback bug")
+
+    try:
+        with pytest.raises(ToolTimeout):
+            run_with_timeout(_late_tool(release), ToolContext(), ARGS, on_late_finish=broken)
+    finally:
+        release.set()
+    assert done.wait(2)  # the callback ran; its error stayed inside the worker

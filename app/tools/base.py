@@ -63,25 +63,48 @@ class Tool:
         return self.handler(ctx, args)
 
 
-def run_with_timeout(tool: Tool, ctx: ToolContext, args: BaseModel) -> BaseModel:
+def run_with_timeout(
+    tool: Tool,
+    ctx: ToolContext,
+    args: BaseModel,
+    on_late_finish: Callable[[str], None] | None = None,
+) -> BaseModel:
     """Run a tool in a fresh daemon thread and wait at most tool.timeout_seconds.
 
     On timeout the thread keeps running until the tool returns on its own; its
-    late result is dropped. A daemon thread (not a ThreadPoolExecutor) so one
-    stuck tool cannot block later tools or interpreter shutdown.
+    late result is dropped, but on_late_finish("ok" or the exception type name)
+    is called so the caller can record that the action did happen after all.
+    A daemon thread (not a ThreadPoolExecutor) so one stuck tool cannot block
+    later tools or interpreter shutdown.
     """
     outcome: dict[str, Any] = {}
+    # The lock decides, exactly once, whether the tool finished in time or late,
+    # so a finish at the moment of the timeout is never lost between the two.
+    lock = threading.Lock()
+    state = {"done": False, "gave_up": False}
 
     def worker() -> None:
         try:
             outcome["value"] = tool.run(ctx, args)
         except Exception as exc:  # noqa: BLE001 — re-raised in the caller below
             outcome["error"] = exc
+        with lock:
+            state["done"] = True
+            late = state["gave_up"]
+        if late and on_late_finish is not None:
+            error = outcome.get("error")
+            try:
+                on_late_finish("ok" if error is None else type(error).__name__)
+            except Exception:  # noqa: BLE001 — nobody is waiting to receive it
+                pass
 
     thread = threading.Thread(target=worker, name=f"tool-{tool.name}", daemon=True)
     thread.start()
     thread.join(tool.timeout_seconds)
-    if thread.is_alive():
+    with lock:
+        if not state["done"]:
+            state["gave_up"] = True
+    if state["gave_up"]:
         raise ToolTimeout(f"Tool timed out after {tool.timeout_seconds:g}s.")
     if "error" in outcome:
         raise outcome["error"]
