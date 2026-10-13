@@ -216,6 +216,9 @@ class AgentLoop:
         except Exception as exc:
             self._audit("run_end", run_id=run_id, status="ERROR", error=type(exc).__name__)
             raise
+        finally:
+            # Level 4 grants last for one request only.
+            self.safety.end_run(run_id)
         self._audit(
             "run_end",
             run_id=run_id,
@@ -433,7 +436,7 @@ class AgentLoop:
     ) -> tuple[str, str, str | None, str | None, str | None]:
         """Returns (observation, status, tool name, risk, error type for the audit log)."""
         tool_name = decision.tool or ""
-        reviewed = self.safety.review(tool_name, decision.args)
+        reviewed = self.safety.review(tool_name, decision.args, run_id=run.run_id)
         tool = reviewed.tool
         risk = tool.risk.value if tool else None
 
@@ -448,6 +451,7 @@ class AgentLoop:
             risk=risk,
             decision=reviewed.decision,
             reason=truncate(reviewed.reason),
+            grant_id=reviewed.grant_id,
         )
         if not recorded and reviewed.decision in {"allow", "confirm"}:
             return "Audit log unavailable; tool not run.", "error", tool_name or None, risk, "AuditUnavailable"
@@ -464,10 +468,18 @@ class AgentLoop:
             return msg, "suggested", tool_name, risk, None
 
         if reviewed.decision == "confirm":
-            prompt = (
-                f"Allow tool '{tool_name}' ({risk}) with args {decision.args}? "
-                f"{reviewed.reason}"
-            )
+            offer = reviewed.grant_offer
+            if offer is None:
+                prompt = (
+                    f"Allow tool '{tool_name}' ({risk}) with args {decision.args}? "
+                    f"{reviewed.reason}"
+                )
+            else:
+                prompt = (
+                    f"Allow tool '{tool_name}' ({risk}) with args {decision.args}, and let "
+                    f"'{tool_name}' run without asking for the rest of this request "
+                    f"(max {offer.max_uses} uses)? {reviewed.reason}"
+                )
             approved = self.confirm is not None and self.confirm(prompt)
             recorded = self._audit(
                 "tool_confirmation",
@@ -476,11 +488,22 @@ class AgentLoop:
                 tool=_safe_tool_name(tool_name),
                 approved=approved,
                 asked=self.confirm is not None,
+                grant_offered=offer is not None,
             )
             if not approved:
                 return f"Confirmation required: {prompt}", "blocked_confirm", tool_name, risk, None
             if not recorded:
                 return "Audit log unavailable; tool not run.", "error", tool_name, risk, "AuditUnavailable"
+            if offer is not None:
+                # The user's yes is relayed; the safety layer decides what it grants.
+                grant = self.safety.accept_grant(offer)
+                self._audit(
+                    "grant_created",
+                    run_id=run.run_id,
+                    grant_id=grant.grant_id,
+                    tool=_safe_tool_name(tool_name),
+                    max_uses=grant.max_uses,
+                )
 
         assert tool is not None
         assert reviewed.parsed_args is not None

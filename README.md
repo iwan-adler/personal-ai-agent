@@ -146,7 +146,7 @@ All settings live in `.env` ([`.env.example`](.env.example) documents each one).
 | 1 | Suggest tools, never run them |
 | 2 | Ask `[y/N]` before every tool (default) |
 | 3 | Run `SAFE` tools automatically; ask for the rest |
-| 4 | Run `SAFE` and `CONFIRMATION` tools automatically; `HIGH_RISK` still asks |
+| 4 | Run `SAFE` tools automatically. A `CONFIRMATION` tool asks once per request and offers a **grant**: say yes and that one tool runs without asking for the rest of the request, up to 5 times in total. `HIGH_RISK` always asks |
 
 ### Reading the audit log
 

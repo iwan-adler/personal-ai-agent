@@ -1,10 +1,17 @@
-"""Safety layer: schema → allowlist → permission → risk vs autonomy.
+"""Safety layer: schema → allowlist → permission → risk vs autonomy → grants.
 
 The LLM is not trusted. Even a well-formed tool call can be denied.
+
+Level 4 grants: at AUTO_BOUNDED a CONFIRMATION tool still asks, but the
+question comes with a grant offer. If the user approves it, that one tool may
+run without asking for the rest of the same request, at most GRANT_MAX_USES
+times. Grants live in memory only and end with the request. HIGH_RISK tools
+are never grantable.
 """
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -19,6 +26,10 @@ class PermissionError(Exception):
     """Tool execution was refused."""
 
 
+class GrantError(PermissionError):
+    """A grant offer was not issued by this layer, was changed, or was already used."""
+
+
 Decision = Literal["allow", "confirm", "suggest", "deny"]
 
 # Permissions granted to a normal session. Fail closed: a new tool is denied
@@ -28,12 +39,37 @@ DEFAULT_GRANTS: frozenset[str] = frozenset(
 )
 
 
+# Uses per Level 4 grant, including the call that was approved.
+GRANT_MAX_USES = 5
+
+
+@dataclass(frozen=True)
+class GrantOffer:
+    """Issued by SafetyLayer.review; becomes a grant only via accept_grant."""
+
+    offer_id: str
+    run_id: str
+    tool_name: str
+    max_uses: int
+
+
+@dataclass
+class Grant:
+    grant_id: str
+    run_id: str
+    tool_name: str
+    max_uses: int
+    uses: int = 0
+
+
 @dataclass(frozen=True)
 class SafetyDecision:
     decision: Decision
     reason: str
     tool: Tool | None = None
     parsed_args: Any = None
+    grant_id: str | None = None
+    grant_offer: GrantOffer | None = None
 
 
 class SafetyLayer:
@@ -57,13 +93,46 @@ class SafetyLayer:
         # The single source of the enforced level: the agent loop reads it from
         # here for the prompt and the trace. Raises ValueError for e.g. 7.
         self._autonomy = AutonomyLevel(autonomy)
+        # Level 4 grants, in memory only. Keyed by (run_id, tool_name).
+        self._grants: dict[tuple[str, str], Grant] = {}
+        self._offers: dict[str, GrantOffer] = {}
 
     @property
     def autonomy(self) -> AutonomyLevel:
         """Read-only, so the level cannot change between prompt and enforcement."""
         return self._autonomy
 
-    def review(self, tool_name: str, raw_args: dict[str, Any] | None) -> SafetyDecision:
+    def accept_grant(self, offer: GrantOffer) -> Grant:
+        """Turn an offer this layer issued into a grant, after the user said yes.
+
+        The approved call is the first use. Raises GrantError for an offer that
+        was never issued, was changed, or was already used.
+        """
+        if self._offers.get(offer.offer_id) != offer:
+            raise GrantError("Unknown or already used grant offer.")
+        del self._offers[offer.offer_id]
+        grant = Grant(
+            grant_id=f"g-{uuid.uuid4().hex[:8]}",
+            run_id=offer.run_id,
+            tool_name=offer.tool_name,
+            max_uses=offer.max_uses,
+            uses=1,
+        )
+        self._grants[(offer.run_id, offer.tool_name)] = grant
+        return grant
+
+    def end_run(self, run_id: str) -> None:
+        """Drop every grant and open offer of a finished request."""
+        self._grants = {k: g for k, g in self._grants.items() if g.run_id != run_id}
+        self._offers = {k: o for k, o in self._offers.items() if o.run_id != run_id}
+
+    def review(
+        self,
+        tool_name: str,
+        raw_args: dict[str, Any] | None,
+        *,
+        run_id: str | None = None,
+    ) -> SafetyDecision:
         tool = self.registry.get(tool_name)
         if tool is None:
             return SafetyDecision(
@@ -120,7 +189,7 @@ class SafetyLayer:
                 parsed_args=parsed,
             )
 
-        # L3: auto SAFE; confirm CONFIRMATION+. L4: auto SAFE+CONFIRMATION (still confirm HIGH_RISK).
+        # L3: auto SAFE; confirm CONFIRMATION+.
         if self.autonomy == AutonomyLevel.AUTO_SAFE and tool.risk != RiskLevel.SAFE:
             return SafetyDecision(
                 decision="confirm",
@@ -129,9 +198,55 @@ class SafetyLayer:
                 parsed_args=parsed,
             )
 
+        # L4: auto SAFE; CONFIRMATION runs only under a grant for this tool in this request.
+        if tool.risk == RiskLevel.CONFIRMATION:
+            return self._review_grant(tool, parsed, run_id)
+
         return SafetyDecision(
             decision="allow",
             reason=f"Allowed {tool.name} at autonomy {int(self.autonomy)}.",
             tool=tool,
             parsed_args=parsed,
+        )
+
+    def _review_grant(self, tool: Tool, parsed: Any, run_id: str | None) -> SafetyDecision:
+        grant = self._grants.get((run_id, tool.name)) if run_id else None
+        if grant is not None and grant.uses < grant.max_uses:
+            # Counted at decision time, matching the write-ahead audit of this decision.
+            grant.uses += 1
+            return SafetyDecision(
+                decision="allow",
+                reason=(
+                    f"Allowed by grant {grant.grant_id} "
+                    f"({grant.max_uses - grant.uses} of {grant.max_uses} uses left)."
+                ),
+                tool=tool,
+                parsed_args=parsed,
+                grant_id=grant.grant_id,
+            )
+        if run_id is None:
+            return SafetyDecision(
+                decision="confirm",
+                reason="Autonomy level 4 needs a per-request grant; no request id was given.",
+                tool=tool,
+                parsed_args=parsed,
+            )
+        offer = GrantOffer(
+            offer_id=uuid.uuid4().hex,
+            run_id=run_id,
+            tool_name=tool.name,
+            max_uses=GRANT_MAX_USES,
+        )
+        self._offers[offer.offer_id] = offer
+        used_up = grant is not None
+        return SafetyDecision(
+            decision="confirm",
+            reason=(
+                f"Grant {grant.grant_id} is used up; approving starts a new one."
+                if used_up
+                else "Autonomy level 4 runs CONFIRMATION tools only under a per-request grant."
+            ),
+            tool=tool,
+            parsed_args=parsed,
+            grant_offer=offer,
         )

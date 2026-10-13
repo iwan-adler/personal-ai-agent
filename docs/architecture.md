@@ -15,6 +15,16 @@ Short-term memory: Conversation list in RAM only
 Long-term memory: TaskStore (data/agent.db, SQLite) — tasks only so far
 ```
 
+### Level 4 grants
+
+`AUTONOMY_LEVEL=4` on its own auto-runs nothing beyond `SAFE` tools. The first
+`CONFIRMATION` call in a request asks as usual, with a grant offer attached. If you
+approve, `SafetyLayer` grants that **one tool name** for the **current request**, for
+5 uses including the approved one (`GRANT_MAX_USES`). After that, or in the next
+request, it asks again. Only offers the safety layer issued can become grants. The loop
+passes your answer back and decides nothing itself. Grants live in memory only, are
+audited (`grant_created`, `grant_id` on `tool_review`), and never apply to `HIGH_RISK`.
+
 ### Audit trail
 
 Every run writes `run_start` → (`tool_review` → `tool_confirmation`?) → `step`… → `run_end`.

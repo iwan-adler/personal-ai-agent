@@ -1,9 +1,18 @@
+from dataclasses import replace
+
 import pytest
 
 from app.config import AutonomyLevel
-from app.safety.permissions import DEFAULT_GRANTS, SafetyLayer
+from app.safety.permissions import (
+    DEFAULT_GRANTS,
+    GRANT_MAX_USES,
+    GrantError,
+    GrantOffer,
+    SafetyLayer,
+)
 from app.tools.base import RiskLevel, Tool
 from app.tools.builtin import CalculatorInput, CalculatorOutput, build_default_registry, calculator_handler
+from app.tools.tasks import register_task_tools
 
 
 def test_unknown_tool_denied():
@@ -166,3 +175,135 @@ def test_autonomy_is_read_only():
     with pytest.raises(AttributeError):
         layer.autonomy = AutonomyLevel.AUTO_BOUNDED
     assert layer.autonomy is AutonomyLevel.ASK_PERMISSION
+
+
+# --- Level 4 grants ---------------------------------------------------------------
+
+ADD = ("task_add", {"title": "x"})
+COMPLETE = ("task_complete", {"task_id": 1})
+
+
+def _level4(autonomy=AutonomyLevel.AUTO_BOUNDED) -> SafetyLayer:
+    registry = build_default_registry()
+    register_task_tools(registry)
+    return SafetyLayer(registry, allowed_permissions=DEFAULT_GRANTS, autonomy=autonomy)
+
+
+def _granted(layer: SafetyLayer, run_id: str = "run-1"):
+    first = layer.review(*ADD, run_id=run_id)
+    assert first.decision == "confirm" and first.grant_offer is not None
+    return layer.accept_grant(first.grant_offer)
+
+
+def test_level_four_without_grant_asks():
+    """Security: AUTONOMY_LEVEL=4 alone auto-runs no CONFIRMATION tool."""
+    decision = _level4().review(*ADD, run_id="run-1")
+    assert decision.decision == "confirm"
+    assert decision.grant_offer.tool_name == "task_add"
+    assert decision.grant_offer.max_uses == GRANT_MAX_USES == 5
+
+
+def test_level_four_without_run_id_asks_and_offers_nothing():
+    decision = _level4().review(*ADD)
+    assert decision.decision == "confirm"
+    assert decision.grant_offer is None
+
+
+def test_grant_allows_up_to_max_uses_then_asks_again():
+    """Security: the approved call is use 1; uses 2-5 run; the 6th asks again."""
+    layer = _level4()
+    grant = _granted(layer)
+    for left in (3, 2, 1, 0):
+        decision = layer.review(*ADD, run_id="run-1")
+        assert decision.decision == "allow"
+        assert decision.grant_id == grant.grant_id
+        assert f"{left} of 5 uses left" in decision.reason
+    sixth = layer.review(*ADD, run_id="run-1")
+    assert sixth.decision == "confirm"
+    assert sixth.grant_offer is not None
+    assert "used up" in sixth.reason
+
+
+def test_grant_covers_only_its_tool():
+    """Security: yes to task_add is not yes to task_complete (same permission)."""
+    layer = _level4()
+    _granted(layer)
+    decision = layer.review(*COMPLETE, run_id="run-1")
+    assert decision.decision == "confirm"
+    assert decision.grant_offer.tool_name == "task_complete"
+
+
+def test_grant_covers_only_its_request():
+    """Security: a grant ends with its request."""
+    layer = _level4()
+    _granted(layer, "run-1")
+    assert layer.review(*ADD, run_id="run-2").decision == "confirm"
+    layer.end_run("run-1")
+    assert layer.review(*ADD, run_id="run-1").decision == "confirm"
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        lambda offer: GrantOffer(offer_id="made-up", run_id="run-1", tool_name="task_add", max_uses=5),
+        lambda offer: replace(offer, max_uses=50),
+        lambda offer: replace(offer, tool_name="task_complete"),
+    ],
+)
+def test_forged_or_changed_offer_rejected(tamper):
+    """Security: only an offer the layer issued, unchanged, becomes a grant."""
+    layer = _level4()
+    offer = layer.review(*ADD, run_id="run-1").grant_offer
+    with pytest.raises(GrantError):
+        layer.accept_grant(tamper(offer))
+    assert layer.review(*ADD, run_id="run-1").decision == "confirm"
+
+
+def test_offer_cannot_be_used_twice():
+    layer = _level4()
+    offer = layer.review(*ADD, run_id="run-1").grant_offer
+    layer.accept_grant(offer)
+    with pytest.raises(GrantError):
+        layer.accept_grant(offer)
+
+
+def test_offer_from_finished_request_rejected():
+    layer = _level4()
+    offer = layer.review(*ADD, run_id="run-1").grant_offer
+    layer.end_run("run-1")
+    with pytest.raises(GrantError):
+        layer.accept_grant(offer)
+
+
+def test_high_risk_is_never_grantable():
+    """Security: HIGH_RISK asks every time at every level, with no grant offer."""
+    registry = build_default_registry()
+    registry.register(
+        Tool(
+            name="wipe",
+            description="test only",
+            input_model=CalculatorInput,
+            output_model=CalculatorOutput,
+            permission="danger.wipe",
+            risk=RiskLevel.HIGH_RISK,
+            handler=calculator_handler,
+        )
+    )
+    layer = SafetyLayer(registry, allowed_permissions=DEFAULT_GRANTS | {"danger.wipe"},
+                        autonomy=AutonomyLevel.AUTO_BOUNDED)
+    decision = layer.review("wipe", {"expression": "1"}, run_id="run-1")
+    assert decision.decision == "confirm"
+    assert decision.grant_offer is None
+
+
+@pytest.mark.parametrize("level", [AutonomyLevel.ASK_PERMISSION, AutonomyLevel.AUTO_SAFE])
+def test_levels_below_four_never_offer_grants(level):
+    decision = _level4(level).review(*ADD, run_id="run-1")
+    assert decision.decision == "confirm"
+    assert decision.grant_offer is None
+
+
+def test_safe_tools_at_level_four_need_no_grant():
+    decision = _level4().review("task_list", {}, run_id="run-1")
+    assert decision.decision == "allow"
+    assert decision.grant_id is None

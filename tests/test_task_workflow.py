@@ -241,3 +241,58 @@ def test_audit_cannot_be_switched_off_after_construction(tmp_path):
         env.agent.audit = None
     assert env.agent.run("hi").status == RunStatus.DONE
     assert env.events("run_end")
+
+
+# --- Level 4 grants, end to end ---------------------------------------------------
+
+L4 = AutonomyLevel.AUTO_BOUNDED
+
+
+def _adds(n: int) -> list[str]:
+    return [_call("task_add", {"title": f"Task {i}"}) for i in range(1, n + 1)]
+
+
+def test_level_four_asks_without_a_grant(tmp_path):
+    """Security: with the user saying no, nothing is written at level 4."""
+    env = _Env(tmp_path, _adds(1) + [_reply("ok")], autonomy=L4, confirm=lambda _p: False)
+    run = env.agent.run("add a task")
+    assert run.status == RunStatus.BLOCKED
+    assert env.store.list() == []
+    assert "without asking for the rest of this request" in env.prompts[0]
+    assert env.events("grant_created") == []
+
+
+def test_one_grant_covers_repeated_calls_in_a_request(tmp_path):
+    env = _Env(tmp_path, _adds(3) + [_reply("Added 3.")], autonomy=L4)
+    run = env.agent.run("add three tasks")
+    assert run.status == RunStatus.DONE
+    assert len(env.prompts) == 1
+    assert [t.title for t in env.store.list()] == ["Task 1", "Task 2", "Task 3"]
+    created = env.events("grant_created")
+    assert len(created) == 1 and created[0]["tool"] == "task_add" and created[0]["max_uses"] == 5
+    reviews = env.events("tool_review")
+    assert [r["grant_id"] for r in reviews] == [None, created[0]["grant_id"], created[0]["grant_id"]]
+    assert env.events("tool_confirmation")[0]["grant_offered"] is True
+
+
+def test_sixth_call_asks_again(tmp_path):
+    env = _Env(tmp_path, _adds(6) + [_reply("Added 6.")], autonomy=L4)
+    env.agent.run("add six tasks")
+    assert len(env.prompts) == 2
+    assert len(env.store.list()) == 6
+    assert len(env.events("grant_created")) == 2
+
+
+def test_next_request_asks_again(tmp_path):
+    env = _Env(tmp_path, _adds(1) + [_reply("ok")] + _adds(1) + [_reply("ok")], autonomy=L4)
+    conv = Conversation()
+    env.agent.run("add one", conv)
+    env.agent.run("add another", conv)
+    assert len(env.prompts) == 2
+
+
+def test_grant_for_add_does_not_cover_complete(tmp_path):
+    env = _Env(tmp_path, _adds(1) + [_call("task_complete", {"task_id": 1}), _reply("ok")], autonomy=L4)
+    env.agent.run("add a task and complete it")
+    assert len(env.prompts) == 2
+    assert "task_complete" in env.prompts[1]
