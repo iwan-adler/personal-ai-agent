@@ -1,6 +1,9 @@
 import json
 import threading
 import time
+from pathlib import Path
+
+import pytest
 
 from pydantic import BaseModel
 
@@ -11,6 +14,7 @@ from app.agent.loop import (
     _neutralize_tags,
     _safe_tool_name,
 )
+from app.audit import AuditLog
 from app.config import AutonomyLevel, Settings
 from app.conversation import Conversation
 from app.llm.client import FakeLLMClient
@@ -29,6 +33,23 @@ def _settings(**kwargs) -> Settings:
     }
     data.update(kwargs)
     return Settings(**data)
+
+
+_audit_dir: Path | None = None
+
+
+@pytest.fixture(autouse=True)
+def _per_test_audit_dir(tmp_path):
+    """Give every test its own folder for a real audit log (pytest cleans it up)."""
+    global _audit_dir
+    _audit_dir = tmp_path
+    yield
+    _audit_dir = None
+
+
+def _audit() -> AuditLog:
+    assert _audit_dir is not None
+    return AuditLog(_audit_dir / "audit.jsonl")
 
 
 def _loop(
@@ -50,6 +71,7 @@ def _loop(
         registry=registry,
         safety=safety,
         confirm=confirm,
+        audit=_audit(),
     )
 
 
@@ -371,6 +393,7 @@ def test_prompt_trace_and_enforcement_use_the_safety_level():
         llm=FakeLLMClient(replies=[_call("calculator", {"expression": "1+1"})]),
         registry=registry,
         safety=safety,
+        audit=_audit(),
     )
     run = loop.run("1+1")
     system = loop.llm.calls[0][0]["content"]
@@ -433,3 +456,35 @@ def test_repeated_timeouts_stop_the_run():
         assert "repeated" in run.final_text.lower()
     finally:
         release.set()
+
+
+
+# --- The audit log cannot be switched off -----------------------------------------
+
+
+def _loop_kwargs() -> dict:
+    registry = build_default_registry()
+    return {
+        "settings": _settings(),
+        "llm": FakeLLMClient(replies=[]),
+        "registry": registry,
+        "safety": SafetyLayer(registry, allowed_permissions=DEFAULT_GRANTS, autonomy=AutonomyLevel.AUTO_SAFE),
+    }
+
+
+def test_audit_is_required():
+    """Security: forgetting the audit log must fail, not run tools unrecorded."""
+    with pytest.raises(TypeError, match="audit"):
+        AgentLoop(**_loop_kwargs())
+
+
+def test_audit_none_rejected():
+    with pytest.raises(TypeError, match="audit is required"):
+        AgentLoop(**_loop_kwargs(), audit=None)
+
+
+def test_loop_tests_write_a_real_audit_log():
+    loop = _loop([FINISH])
+    loop.run("hi")
+    events = [e["event"] for e in loop.audit.read()]
+    assert events == ["run_start", "step", "run_end"]

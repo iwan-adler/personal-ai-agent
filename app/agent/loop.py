@@ -186,8 +186,13 @@ class AgentLoop:
         logger: logging.Logger | None = None,
         confirm: ConfirmFn | None = None,
         tool_ctx: ToolContext | None = None,
-        audit: AuditLog | None = None,
+        *,
+        audit: AuditLog,
     ) -> None:
+        # Required, with no "off" value: a forgotten audit log must fail here,
+        # not silently run tools with nothing recorded.
+        if audit is None:
+            raise TypeError("audit is required; pass an AuditLog.")
         self.settings = settings
         self.llm = llm
         self.registry = registry
@@ -195,7 +200,7 @@ class AgentLoop:
         self.logger = logger or logging.getLogger("paios.agent")
         self.confirm = confirm
         self.tool_ctx = tool_ctx or ToolContext()
-        self.audit = audit
+        self._audit_log = audit
 
     def run(self, user_text: str, conversation: Conversation | None = None) -> AgentRun:
         run_id = str(uuid.uuid4())
@@ -222,12 +227,15 @@ class AgentLoop:
         )
         return run
 
+    @property
+    def audit(self) -> AuditLog:
+        """Read-only, so auditing cannot be switched off after construction."""
+        return self._audit_log
+
     def _audit(self, event: str, **fields: Any) -> bool:
         """Write one audit event. Returns False (and logs) if it could not be written."""
-        if self.audit is None:
-            return True
         try:
-            self.audit.write(event, **fields)
+            self._audit_log.write(event, **fields)
             return True
         except OSError:
             self.logger.exception("audit_write_failed", extra={"event": {"audit_event": event}})

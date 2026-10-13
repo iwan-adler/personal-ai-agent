@@ -234,7 +234,10 @@ def test_llm_exception_is_audited_and_reraised(tmp_path):
     assert end["error"] == "RuntimeError"
 
 
-def test_agent_without_audit_still_works(tmp_path):
+def test_audit_cannot_be_switched_off_after_construction(tmp_path):
+    """Security: the audit log is read-only, so tools can never run unrecorded."""
     env = _Env(tmp_path, [_reply("Hello.")])
-    env.agent.audit = None
+    with pytest.raises(AttributeError):
+        env.agent.audit = None
     assert env.agent.run("hi").status == RunStatus.DONE
+    assert env.events("run_end")
