@@ -22,7 +22,7 @@ from app.config import AutonomyLevel, Settings
 from app.conversation import SYSTEM_PROMPT, Conversation
 from app.llm.client import Completer, CompletionResult
 from app.safety.permissions import SafetyLayer
-from app.tools.base import ToolContext, ToolRegistry, ToolTimeout, run_with_timeout
+from app.tools.base import RiskLevel, ToolContext, ToolRegistry, ToolTimeout, run_with_timeout
 
 ConfirmFn = Callable[[str], bool]
 
@@ -126,7 +126,11 @@ def _wrap_observation(tool_name: str | None, status: str, text: str) -> str:
 
 # Statuses whose observation is built only from our own fixed wording (safety
 # reasons use field names and pydantic messages, never input values).
-_AUDITABLE_OBSERVATIONS = {"denied", "timeout"}
+_AUDITABLE_OBSERVATIONS = {"denied", "timeout", "repeated"}
+
+REPEATED_OBSERVATION = (
+    "Identical to the previous successful call; its result is above. Use it or finish."
+)
 
 
 def _audit_detail(step: StepRecord) -> str | None:
@@ -275,6 +279,10 @@ class AgentLoop:
         failure_key: str | None = None
         identical_failures = 0
         repair_attempts = 0
+        # (tool, args hash) of the last successful tool call, and how many
+        # identical SAFE calls in a row were skipped since.
+        last_ok_call: tuple[str, str] | None = None
+        repeated_calls = 0
 
         schemas = json.dumps(self.registry.schemas_for_prompt(), indent=2)
         system = (
@@ -379,7 +387,22 @@ class AgentLoop:
                 run.step_index += 1
                 return run
 
-            observation, step_status, tool_name, risk, error_type = self._act(decision, run)
+            call_key = (decision.tool or "", _args_hash(decision.args))
+            known_tool = self.registry.get(call_key[0])
+            if (
+                known_tool is not None
+                and known_tool.risk == RiskLevel.SAFE
+                and call_key == last_ok_call
+            ):
+                # Nothing ran in between that could change the answer, so running
+                # it again is no progress. Writes are handled by the safety layer.
+                observation, step_status, tool_name, risk, error_type = (
+                    REPEATED_OBSERVATION, "repeated", call_key[0], known_tool.risk.value, None
+                )
+            else:
+                observation, step_status, tool_name, risk, error_type = self._act(decision, run)
+                if step_status == "ok":
+                    last_ok_call = call_key
             self._add_step(
                 run,
                 StepRecord(
@@ -401,6 +424,16 @@ class AgentLoop:
             conv.add_assistant(result.text)
             conv.add_user(_wrap_observation(tool_name, step_status, observation))
             run.step_index += 1
+
+            if step_status == "repeated":
+                repeated_calls += 1
+                if repeated_calls >= 2:
+                    run.status = RunStatus.FAILED
+                    run.final_text = "Stopped: the model kept repeating the same tool call."
+                    run.stop_reason = "repeated_call"
+                    return run
+            else:
+                repeated_calls = 0
 
             if step_status in {"denied", "error", "timeout"}:
                 key = f"{tool_name}:{step_status}:{observation}"

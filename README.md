@@ -19,7 +19,7 @@ Agent frameworks often let a model's output trigger real actions directly. That'
 | **Permissions** | Each tool needs a named permission, and none are granted by default (fail closed) |
 | **Risk and autonomy** | `SAFE` / `CONFIRMATION` / `HIGH_RISK` tools are allowed, suggested or confirmed depending on `AUTONOMY_LEVEL`; `HIGH_RISK` always asks |
 | **Untrusted output** | Tool results go back to the model inside labelled `<tool_result>` blocks that the tool's output can't close |
-| **Budgets** | Maximum steps and tokens per run, bounded repair attempts for malformed JSON, LLM call timeouts, per-tool timeouts and output size limits, and a stop after repeated identical failures |
+| **Budgets** | Maximum steps and tokens per run, bounded repair attempts for malformed JSON, LLM call timeouts, per-tool timeouts and output size limits, and a stop after repeated identical failures or repeated identical read calls |
 | **Audit log** | Each safety decision is written to disk *before* the tool runs; if that write fails, the tool doesn't run |
 
 ```mermaid

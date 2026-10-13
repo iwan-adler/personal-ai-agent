@@ -511,3 +511,82 @@ def test_late_finish_of_timed_out_tool_is_audited():
     assert late[0]["run_id"] == run.run_id
     assert all("LATE RESULT" not in m["content"] for m in conv.messages)
     assert "LATE RESULT" not in loop.audit.path.read_text(encoding="utf-8")
+
+
+# --- Repeated identical read calls --------------------------------------------------
+
+
+def _counting_registry() -> tuple[ToolRegistry, list[int]]:
+    calls: list[int] = []
+
+    def count(ctx, args):
+        calls.append(1)
+        return _TextOut(text=f"call {len(calls)}")
+
+    registry = build_default_registry()
+    registry.register(
+        Tool(
+            name="peek",
+            description="Test tool.",
+            input_model=_NoArgs,
+            output_model=_TextOut,
+            permission="test",
+            risk=RiskLevel.SAFE,
+            handler=count,
+        )
+    )
+    return registry, calls
+
+
+def test_identical_read_right_after_success_is_not_run_again():
+    registry, calls = _counting_registry()
+    loop = _loop([_call("peek"), _call("peek"), FINISH], registry=registry)
+    run = loop.run("peek")
+    assert run.status == RunStatus.DONE
+    assert len(calls) == 1
+    assert [s.result_status for s in run.steps] == ["ok", "repeated", "ok"]
+    results = [m["content"] for m in loop.llm.calls[-1] if m["content"].startswith("<tool_result")]
+    assert results[1].startswith('<tool_result tool="peek" status="repeated">')
+
+
+def test_repeating_read_stops_the_run():
+    registry, calls = _counting_registry()
+    loop = _loop([_call("peek")] * 3 + [FINISH], registry=registry)
+    run = loop.run("peek")
+    assert run.status == RunStatus.FAILED
+    assert run.stop_reason == "repeated_call"
+    assert len(calls) == 1
+    end = [e for e in loop.audit.read() if e["event"] == "run_end"][0]
+    assert end["reason"] == "repeated_call"
+
+
+def test_read_after_another_successful_call_runs_again():
+    """Something may have changed in between (e.g. list -> add -> list)."""
+    registry, calls = _counting_registry()
+    replies = [_call("peek"), _call("time_now"), _call("peek"), FINISH]
+    run = _loop(replies, registry=registry).run("peek twice")
+    assert [s.result_status for s in run.steps] == ["ok", "ok", "ok", "ok"]
+    assert len(calls) == 2
+
+
+def test_read_with_different_args_runs_again():
+    replies = [_call("calculator", {"expression": "1+1"}), _call("calculator", {"expression": "2+2"}), FINISH]
+    run = _loop(replies).run("two sums")
+    assert [s.result_status for s in run.steps] == ["ok", "ok", "ok"]
+
+
+def test_safe_note_tool_is_not_written_twice():
+    """echo_note is SAFE but writes: an identical repeat must not add a second note."""
+    note = _call("echo_note", {"text": "buy milk"})
+    loop = _loop([note, note, FINISH])
+    loop.run("note it")
+    assert loop.tool_ctx.notes == ["buy milk"]
+
+
+def test_repeated_step_is_audited_without_args():
+    registry, _ = _counting_registry()
+    loop = _loop([_call("peek", {}), _call("peek", {}), FINISH], registry=registry)
+    loop.run("peek")
+    steps = [e for e in loop.audit.read() if e["event"] == "step"]
+    assert steps[1]["result_status"] == "repeated"
+    assert steps[1]["detail"].startswith("Identical to the previous successful call")
