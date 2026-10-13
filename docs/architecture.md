@@ -36,6 +36,16 @@ audited (`grant_created`, `grant_id` on `tool_review`), and never apply to `HIGH
   the first call may still have acted. Asking, not blocking, keeps deliberate
   duplicates possible.
 
+### Secrets and child processes
+
+The API key is a `SecretStr` in `Settings` (printing or dumping settings shows
+`**********`) and is removed from `os.environ` once loaded. Provider errors are
+redacted before they become an `LLMError`. Any tool that starts a program must use
+`app.tools.process.run_command`: an **allowlisted** environment (so unknown secrets
+never reach the child either), arguments as a list with no shell, and a timeout that
+kills the child. `tests/test_process.py` fails if anything else in `app/` starts a
+process.
+
 ### Audit trail
 
 Every run writes `run_start` → (`tool_review` → `tool_confirmation`?) → `step`… → `run_end`.

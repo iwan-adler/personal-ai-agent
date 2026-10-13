@@ -38,7 +38,9 @@ class Tool:
     timeout_seconds is enforced by run_with_timeout, which can only stop
     *waiting*: a stuck Python function cannot be killed from outside. Tools that
     do I/O (HTTP, subprocess, files on network drives) must therefore also pass
-    self.timeout_seconds to those calls, so the I/O itself is cut off.
+    self.timeout_seconds to those calls, so the I/O itself is cut off. Tools that
+    start a program must use app.tools.process.run_command (scrubbed environment,
+    no shell, child killed on timeout); tests fail on any other way.
     """
 
     name: str
