@@ -28,11 +28,15 @@ from app.config import AutonomyLevel
 from app.tools.base import RiskLevel, Tool, ToolRegistry, format_validation_error
 
 
-class PermissionError(Exception):
-    """Tool execution was refused."""
+class ToolRefused(Exception):
+    """Tool execution was refused.
+
+    Not named PermissionError: that would hide the builtin of the same name
+    (an OSError subclass) in this module and confuse `except PermissionError`.
+    """
 
 
-class GrantError(PermissionError):
+class GrantError(ToolRefused):
     """A grant offer was not issued by this layer, was changed, or was already used."""
 
 

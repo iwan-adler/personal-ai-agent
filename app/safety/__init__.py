@@ -1,3 +1,3 @@
-from app.safety.permissions import PermissionError, SafetyDecision, SafetyLayer
+from app.safety.permissions import GrantError, SafetyDecision, SafetyLayer, ToolRefused
 
-__all__ = ["PermissionError", "SafetyDecision", "SafetyLayer"]
+__all__ = ["GrantError", "SafetyDecision", "SafetyLayer", "ToolRefused"]

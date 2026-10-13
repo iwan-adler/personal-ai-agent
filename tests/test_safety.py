@@ -9,6 +9,7 @@ from app.safety.permissions import (
     GrantError,
     GrantOffer,
     SafetyLayer,
+    ToolRefused,
 )
 from app.tools.base import RiskLevel, Tool
 from app.tools.builtin import CalculatorInput, CalculatorOutput, build_default_registry, calculator_handler
@@ -370,3 +371,11 @@ def test_repeated_safe_calls_are_not_the_safety_layers_concern():
     layer = _level4()
     _started(layer, "task_list", {})
     assert layer.review("task_list", {}, run_id="run-1").decision == "allow"
+
+
+def test_safety_module_does_not_shadow_the_builtin_permission_error():
+    import app.safety.permissions as permissions
+
+    assert "PermissionError" not in vars(permissions)  # the builtin (an OSError) stays visible
+    assert issubclass(GrantError, ToolRefused)
+    assert not issubclass(GrantError, PermissionError)
