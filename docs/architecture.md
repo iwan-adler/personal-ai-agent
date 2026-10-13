@@ -25,6 +25,17 @@ request, it asks again. Only offers the safety layer issued can become grants. T
 passes your answer back and decides nothing itself. Grants live in memory only, are
 audited (`grant_created`, `grant_id` on `tool_review`), and never apply to `HIGH_RISK`.
 
+### Repeated calls
+
+- **Reads** (`SAFE` tools): the loop does not re-run a call identical to the previous
+  successful one (nothing changed in between). The model gets a `repeated` observation;
+  a second repeat in a row stops the run (`repeated_call`).
+- **Writes** (`CONFIRMATION`/`HIGH_RISK`): a call identical to one already *started* in
+  this request (validated args, so `" x "` equals `"x"`) always asks again, at every
+  level and even under a Level 4 grant. "Started" covers timeouts and errors, where
+  the first call may still have acted. Asking, not blocking, keeps deliberate
+  duplicates possible.
+
 ### Audit trail
 
 Every run writes `run_start` → (`tool_review` → `tool_confirmation`?) → `step`… → `run_end`.

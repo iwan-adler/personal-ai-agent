@@ -553,6 +553,8 @@ class AgentLoop:
                     status=status,
                 )
 
+            # Report the fact; the safety layer decides what a repeat of it means.
+            self.safety.note_started(run.run_id, tool.name, reviewed.parsed_args)
             output = run_with_timeout(
                 tool, self.tool_ctx, reviewed.parsed_args, on_late_finish=on_late_finish
             )

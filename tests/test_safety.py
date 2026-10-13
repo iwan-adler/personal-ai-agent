@@ -307,3 +307,66 @@ def test_safe_tools_at_level_four_need_no_grant():
     decision = _level4().review("task_list", {}, run_id="run-1")
     assert decision.decision == "allow"
     assert decision.grant_id is None
+
+
+# --- Duplicate writes in one request ----------------------------------------------
+
+
+def _started(layer: SafetyLayer, tool_name: str, args: dict, run_id: str = "run-1") -> None:
+    """What the loop does just before a tool runs (no review, so no grant use)."""
+    layer.note_started(run_id, tool_name, layer.registry.get(tool_name).parse_args(args))
+
+
+def test_duplicate_write_asks_even_with_a_grant():
+    """Security: a grant never auto-runs an identical write, and loses no use."""
+    layer = _level4()
+    grant = _granted(layer)
+    _started(layer, *ADD)  # the approved first call ran
+    decision = layer.review(*ADD, run_id="run-1")
+    assert decision.decision == "confirm"
+    assert "duplicate" in decision.reason
+    assert decision.grant_offer is None
+    assert grant.uses == 1
+
+
+@pytest.mark.parametrize(
+    "same_call",
+    [
+        {"title": "  x  "},  # stripped by the input model
+        {"due_date": None, "title": "x"},  # explicit default, other key order
+    ],
+)
+def test_duplicate_detection_uses_validated_args(same_call):
+    layer = _level4()
+    _started(layer, *ADD)
+    assert "duplicate" in layer.review("task_add", same_call, run_id="run-1").reason
+
+
+def test_different_write_is_not_a_duplicate():
+    layer = _level4()
+    _granted(layer)
+    _started(layer, *ADD)
+    assert layer.review("task_add", {"title": "y"}, run_id="run-1").decision == "allow"
+
+
+@pytest.mark.parametrize("level", [AutonomyLevel.ASK_PERMISSION, AutonomyLevel.AUTO_SAFE])
+def test_duplicate_reason_shown_at_lower_levels(level):
+    layer = _level4(level)
+    _started(layer, *ADD)
+    decision = layer.review(*ADD, run_id="run-1")
+    assert decision.decision == "confirm"
+    assert "duplicate" in decision.reason
+
+
+def test_duplicates_are_per_request():
+    layer = _level4()
+    _started(layer, *ADD, run_id="run-1")
+    assert "duplicate" not in layer.review(*ADD, run_id="run-2").reason
+    layer.end_run("run-1")
+    assert "duplicate" not in layer.review(*ADD, run_id="run-1").reason
+
+
+def test_repeated_safe_calls_are_not_the_safety_layers_concern():
+    layer = _level4()
+    _started(layer, "task_list", {})
+    assert layer.review("task_list", {}, run_id="run-1").decision == "allow"

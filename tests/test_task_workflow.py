@@ -296,3 +296,34 @@ def test_grant_for_add_does_not_cover_complete(tmp_path):
     env.agent.run("add a task and complete it")
     assert len(env.prompts) == 2
     assert "task_complete" in env.prompts[1]
+
+
+# --- Duplicate writes, end to end -------------------------------------------------
+
+
+def test_identical_task_add_asks_again_under_a_grant(tmp_path):
+    """Security: the grant has uses left, but a duplicate still needs a person."""
+    same = _call("task_add", {"title": "Submit DBMS"})
+    env = _Env(tmp_path, [same, same, _reply("ok")], autonomy=L4, confirm=lambda p: "duplicate" not in p)
+    run = env.agent.run("add the DBMS task")
+    assert [t.title for t in env.store.list()] == ["Submit DBMS"]
+    assert len(env.prompts) == 2
+    assert "may be a duplicate" in env.prompts[1]
+    assert run.steps[1].result_status == "blocked_confirm"
+
+
+def test_approved_duplicate_still_runs(tmp_path):
+    """Asking, not blocking: two identical entries remain possible on purpose."""
+    same = _call("task_add", {"title": "Water plants"})
+    env = _Env(tmp_path, [same, same, _reply("ok")], autonomy=L4)
+    env.agent.run("add it twice")
+    assert [t.title for t in env.store.list()] == ["Water plants", "Water plants"]
+    assert len(env.prompts) == 2
+
+
+def test_duplicate_in_next_request_is_fine(tmp_path):
+    same = _call("task_add", {"title": "Gym"})
+    env = _Env(tmp_path, [same, _reply("ok"), same, _reply("ok")], autonomy=L4)
+    env.agent.run("add gym")
+    env.agent.run("add gym again")
+    assert all("duplicate" not in p for p in env.prompts)

@@ -7,10 +7,16 @@ question comes with a grant offer. If the user approves it, that one tool may
 run without asking for the rest of the same request, at most GRANT_MAX_USES
 times. Grants live in memory only and end with the request. HIGH_RISK tools
 are never grantable.
+
+Duplicate writes: a CONFIRMATION or HIGH_RISK call identical to one already
+started in the same request always asks again, even under a grant. "Started",
+not "succeeded": after a timeout or error the first call may still have acted.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from collections.abc import Collection
 from dataclasses import dataclass
@@ -72,6 +78,14 @@ class SafetyDecision:
     grant_offer: GrantOffer | None = None
 
 
+def _call_key(parsed_args: Any) -> str:
+    """Hash of the *validated* args, so " x " and "x" (stripped by the input
+    model) or a different key order count as the same call."""
+    data = parsed_args.model_dump(mode="json") if hasattr(parsed_args, "model_dump") else parsed_args
+    blob = json.dumps(data, sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
 class SafetyLayer:
     def __init__(
         self,
@@ -96,6 +110,8 @@ class SafetyLayer:
         # Level 4 grants, in memory only. Keyed by (run_id, tool_name).
         self._grants: dict[tuple[str, str], Grant] = {}
         self._offers: dict[str, GrantOffer] = {}
+        # Calls started per request, as (tool name, hash of validated args).
+        self._started: dict[str, set[tuple[str, str]]] = {}
 
     @property
     def autonomy(self) -> AutonomyLevel:
@@ -121,8 +137,13 @@ class SafetyLayer:
         self._grants[(offer.run_id, offer.tool_name)] = grant
         return grant
 
+    def note_started(self, run_id: str, tool_name: str, parsed_args: Any) -> None:
+        """Called by the loop just before a tool runs; review() uses it to spot duplicates."""
+        self._started.setdefault(run_id, set()).add((tool_name, _call_key(parsed_args)))
+
     def end_run(self, run_id: str) -> None:
-        """Drop every grant and open offer of a finished request."""
+        """Drop every grant, open offer and started-call record of a finished request."""
+        self._started.pop(run_id, None)
         self._grants = {k: g for k, g in self._grants.items() if g.run_id != run_id}
         self._offers = {k: o for k, o in self._offers.items() if o.run_id != run_id}
 
@@ -169,6 +190,22 @@ class SafetyLayer:
             return SafetyDecision(
                 decision="suggest",
                 reason="Autonomy level 1 only suggests tools; nothing is executed.",
+                tool=tool,
+                parsed_args=parsed,
+            )
+
+        if (
+            tool.risk != RiskLevel.SAFE
+            and run_id is not None
+            and (tool.name, _call_key(parsed)) in self._started.get(run_id, set())
+        ):
+            # Checked before grants, so a grant can never auto-run a duplicate.
+            return SafetyDecision(
+                decision="confirm",
+                reason=(
+                    f"Identical to an earlier {tool.name} call in this request; "
+                    "it may be a duplicate."
+                ),
                 tool=tool,
                 parsed_args=parsed,
             )

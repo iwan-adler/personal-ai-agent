@@ -590,3 +590,40 @@ def test_repeated_step_is_audited_without_args():
     steps = [e for e in loop.audit.read() if e["event"] == "step"]
     assert steps[1]["result_status"] == "repeated"
     assert steps[1]["detail"].startswith("Identical to the previous successful call")
+
+
+def test_identical_write_after_timeout_asks_again():
+    """Security: a timed-out write may still have acted, so repeating it needs a person."""
+    release = threading.Event()
+    prompts: list[str] = []
+
+    def hang(ctx, args):
+        release.wait(30)
+        return _TextOut(text="written")
+
+    registry = build_default_registry()
+    registry.register(
+        Tool(
+            name="slow_write",
+            description="Test tool.",
+            input_model=_NoArgs,
+            output_model=_TextOut,
+            permission="test",
+            risk=RiskLevel.CONFIRMATION,
+            handler=hang,
+            timeout_seconds=0.1,
+        )
+    )
+    settings = _settings(autonomy_level=AutonomyLevel.AUTO_BOUNDED)
+    loop = _loop(
+        [_call("slow_write"), _call("slow_write"), FINISH],
+        settings=settings,
+        registry=registry,
+        confirm=lambda p: prompts.append(p) or "duplicate" not in p,
+    )
+    try:
+        run = loop.run("write")
+    finally:
+        release.set()
+    assert [s.result_status for s in run.steps] == ["timeout", "blocked_confirm"]
+    assert "may be a duplicate" in prompts[1]
