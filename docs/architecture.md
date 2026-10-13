@@ -58,6 +58,9 @@ errors, and a fixed `reason` code (`max_steps`, `token_budget`, `invalid_output`
 `repeated_failure`) when a run stops early. One field is model-written: the step
 `summary` (truncated), kept on purpose because it explains *why* a tool was chosen. It
 can paraphrase what you asked, so skim it before sharing the file.
+If the agent crashes mid-write, the next write puts the cut-off line on its own line
+so no later event is lost, and `AuditLog.read()` skips damaged lines with a warning
+that names only their line numbers (`read(strict=True)` raises instead).
 
 The LLM **proposes**. Python **decides**. Tools **act** only after safety review.
 
