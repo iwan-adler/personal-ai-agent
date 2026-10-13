@@ -627,3 +627,24 @@ def test_identical_write_after_timeout_asks_again():
         release.set()
     assert [s.result_status for s in run.steps] == ["timeout", "blocked_confirm"]
     assert "may be a duplicate" in prompts[1]
+
+
+def test_multibyte_tool_output_stays_within_the_byte_limit():
+    """Security: 10,000 x "é" (20,000 bytes) is cut to at most 1000 bytes, not ~2000."""
+    registry = build_default_registry()
+    registry.register(
+        Tool(
+            name="big",
+            description="Test tool.",
+            input_model=_NoArgs,
+            output_model=_TextOut,
+            permission="test",
+            risk=RiskLevel.SAFE,
+            handler=lambda ctx, args: _TextOut(text="é" * 10_000),
+            max_output_bytes=1000,
+        )
+    )
+    run = _loop([_call("big"), FINISH], registry=registry).run("big")
+    observation = run.steps[0].observation
+    assert len(observation.encode("utf-8")) <= 1000
+    assert observation.endswith("…[truncated]")

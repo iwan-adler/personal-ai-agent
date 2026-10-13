@@ -22,7 +22,14 @@ from app.config import AutonomyLevel, Settings
 from app.conversation import SYSTEM_PROMPT, Conversation
 from app.llm.client import Completer, CompletionResult
 from app.safety.permissions import SafetyLayer
-from app.tools.base import RiskLevel, ToolContext, ToolRegistry, ToolTimeout, run_with_timeout
+from app.tools.base import (
+    RiskLevel,
+    ToolContext,
+    ToolRegistry,
+    ToolTimeout,
+    run_with_timeout,
+    truncate_utf8,
+)
 
 ConfirmFn = Callable[[str], bool]
 
@@ -558,9 +565,7 @@ class AgentLoop:
             output = run_with_timeout(
                 tool, self.tool_ctx, reviewed.parsed_args, on_late_finish=on_late_finish
             )
-            payload = output.model_dump_json()
-            if len(payload.encode("utf-8")) > tool.max_output_bytes:
-                payload = payload[: tool.max_output_bytes] + "…[truncated]"
+            payload = truncate_utf8(output.model_dump_json(), tool.max_output_bytes)
             return payload, "ok", tool_name, risk, None
         except ToolTimeout as exc:
             # The tool may still finish its action later, so a retry could do it twice.

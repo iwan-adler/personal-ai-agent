@@ -5,7 +5,15 @@ import time
 import pytest
 from pydantic import ValidationError
 
-from app.tools.base import RiskLevel, Tool, ToolContext, ToolTimeout, run_with_timeout
+from app.tools.base import (
+    TRUNCATION_MARKER,
+    RiskLevel,
+    Tool,
+    ToolContext,
+    ToolTimeout,
+    run_with_timeout,
+    truncate_utf8,
+)
 from app.tools.builtin import (
     CalculatorInput,
     CalculatorOutput,
@@ -161,3 +169,37 @@ def test_failing_late_finish_callback_is_contained():
     finally:
         release.set()
     assert done.wait(2)  # the callback ran; its error stayed inside the worker
+
+
+# --- Output limit in bytes ----------------------------------------------------------
+
+
+
+@pytest.mark.parametrize("char", ["a", "é", "€", "中", "😀"])  # 1, 2, 3, 3, 4 bytes
+@pytest.mark.parametrize("limit", [64, 65, 66, 67, 100, 1000])
+def test_truncated_output_never_exceeds_the_byte_limit(char, limit):
+    """Security: the limit is a real bound on untrusted output, whatever the encoding."""
+    out = truncate_utf8(char * 5000, limit)
+    data = out.encode("utf-8")
+    assert len(data) <= limit
+    data.decode("utf-8", errors="strict")  # never a split character
+    assert out.endswith(TRUNCATION_MARKER)
+
+
+@pytest.mark.parametrize("text", ["", "short", "é" * 32])  # "é" * 32 is exactly 64 bytes
+def test_output_within_the_limit_is_unchanged(text):
+    assert truncate_utf8(text, 64) == text
+
+
+def test_tool_rejects_too_small_output_limit():
+    with pytest.raises(ValueError, match="max_output_bytes"):
+        Tool(
+            name="t",
+            description="test",
+            input_model=CalculatorInput,
+            output_model=CalculatorOutput,
+            permission="test",
+            risk=RiskLevel.SAFE,
+            handler=calculator_handler,
+            max_output_bytes=10,
+        )

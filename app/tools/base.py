@@ -27,6 +27,25 @@ class ToolContext:
     task_store: TaskStore | None = None
 
 
+TRUNCATION_MARKER = "…[truncated]"
+# The marker must fit inside the limit, with room left for some output.
+MIN_OUTPUT_BYTES = 64
+
+
+def truncate_utf8(text: str, max_bytes: int) -> str:
+    """Cut text so its UTF-8 encoding, marker included, is at most max_bytes.
+
+    Slicing the str would count characters, and a character can be up to 4
+    bytes. Cutting the bytes can split the last character; decoding with
+    errors="ignore" drops only that partial character.
+    """
+    data = text.encode("utf-8")
+    if len(data) <= max_bytes:
+        return text
+    budget = max_bytes - len(TRUNCATION_MARKER.encode("utf-8"))
+    return data[:budget].decode("utf-8", errors="ignore") + TRUNCATION_MARKER
+
+
 class ToolTimeout(TimeoutError):
     """A tool did not finish within its timeout_seconds."""
 
@@ -57,6 +76,10 @@ class Tool:
         # "not > 0" also rejects NaN, which would make join() wait forever.
         if not self.timeout_seconds > 0:
             raise ValueError(f"Tool {self.name!r}: timeout_seconds must be > 0.")
+        if self.max_output_bytes < MIN_OUTPUT_BYTES:
+            raise ValueError(
+                f"Tool {self.name!r}: max_output_bytes must be >= {MIN_OUTPUT_BYTES}."
+            )
 
     def parse_args(self, raw: dict[str, Any]) -> BaseModel:
         return self.input_model.model_validate(raw)
