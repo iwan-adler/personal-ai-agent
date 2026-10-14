@@ -55,6 +55,10 @@ flowchart LR
   | `fact_search` | SAFE | Keyword search over what you told the agent in earlier sessions |
   | `fact_list` | SAFE | Saved facts, newest first, optionally one topic |
   | `fact_save` | CONFIRMATION | Remember a fact about you (up to 300 characters); you see the exact text first |
+  | `file_list` | SAFE | List one folder inside `WORKSPACE_DIR` (only if it is set) |
+  | `file_read` | SAFE | Read a text file inside `WORKSPACE_DIR`, up to 400 lines at a time |
+
+  The file tools only reach the one folder you set as `WORKSPACE_DIR`. They can never see `.env`, keys (`*.pem`, `*.key`, `id_rsa*`), `.ssh` or `.git`, and they reject Windows path tricks (`..`, other drives, network paths, `file:stream`, `CON`/`NUL`, names ending in a dot, junctions or hard links leading outside). Anything they read counts as outside content: for the rest of that request, Level 4 grants are suspended and every write asks.
 
   No tool can delete anything. Facts and sessions are deleted only by your own `/forget-fact` and `/forget-session` commands.
 - **Persistent storage** in SQLite (`data/agent.db`): tasks, chat sessions and facts, with numbered schema migrations. Sessions store only what you typed and the agent's final replies, never tool calls or tool results, so an instruction planted in an old tool result can't come back later.
@@ -157,6 +161,7 @@ All settings live in `.env` ([`.env.example`](.env.example) documents each one).
 | `MAX_REPAIR_ATTEMPTS` | `2` | Times to ask the model to fix malformed JSON (0–5) |
 | `LLM_TIMEOUT_SECONDS` | `60` | Per API call; the SDK retries up to 2 more times |
 | `MAX_HISTORY_MESSAGES` | `20` | Recent messages sent to the model each turn (4–200) |
+| `WORKSPACE_DIR` | *(empty)* | Absolute path of the only folder the file tools may read, e.g. `C:\Users\you\Documents\koda-workspace`. Empty means no file tools. Not allowed: a drive root, your home folder itself, or a folder containing this project |
 | `OPENAI_API_STYLE` | `chat` | `chat` (most compatible) or `responses` |
 | `LOG_LEVEL` | `INFO` | Structured JSON logs go to stderr |
 

@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 
 from app.agent.loop import AgentLoop
 from app.audit import AuditLog
-from app.config import PROJECT_ROOT, ConfigError, load_settings
+from app.config import PROJECT_ROOT, ConfigError, Settings, load_settings
 from app.conversation import Conversation
 from app.llm.client import LLMClient, LLMError
 from app.logging_setup import setup_logging
@@ -18,9 +18,10 @@ from app.memory.facts import FactNotFound, FactStore
 from app.memory.sessions import SessionNotFound, SessionStore
 from app.memory.tasks import TaskStore
 from app.safety.permissions import DEFAULT_GRANTS, SafetyLayer
-from app.tools.base import ToolContext
+from app.tools.base import ToolContext, ToolRegistry
 from app.tools.builtin import build_default_registry
 from app.tools.facts import register_fact_tools
+from app.tools.files import register_file_tools
 from app.tools.tasks import register_task_tools
 
 # Local, gitignored agent data (see .gitignore: data/*.db, data/*.jsonl).
@@ -171,6 +172,16 @@ def handle_command(line: str, state: ChatState, confirm: Callable[[str], bool] =
     return f"Unknown command {command}. Type /help."
 
 
+def build_registry(settings: Settings) -> ToolRegistry:
+    """Every tool this session offers. File tools only exist with a WORKSPACE_DIR."""
+    registry = build_default_registry()
+    register_task_tools(registry)
+    register_fact_tools(registry)
+    if settings.workspace_dir is not None:
+        register_file_tools(registry, settings.workspace_dir)
+    return registry
+
+
 def main() -> int:
     try:
         settings = load_settings()
@@ -189,9 +200,7 @@ def main() -> int:
         print(f"Storage error: could not open {DATA_DIR}: {exc}", file=sys.stderr)
         return 1
 
-    registry = build_default_registry()
-    register_task_tools(registry)
-    register_fact_tools(registry)
+    registry = build_registry(settings)
     safety = SafetyLayer(
         registry,
         allowed_permissions=DEFAULT_GRANTS,
@@ -213,6 +222,7 @@ def main() -> int:
     print("Personal AI Agent (quit / exit to stop)")
     print(f"model={settings.openai_model} autonomy={int(settings.autonomy_level)}")
     print(f"data={task_store.path} audit={audit.path}")
+    print(f"workspace={settings.workspace_dir or '(not set: no file tools)'}")
     print("Type /help for session commands.")
     print()
 

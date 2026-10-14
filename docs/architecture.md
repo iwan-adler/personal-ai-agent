@@ -16,6 +16,28 @@ Long-term memory: data/agent.db (SQLite, numbered migrations in app/memory/db.py
   tasks · sessions + messages (what you typed + final replies) · facts (+ FTS5 index)
 ```
 
+### Files (V0.5)
+
+`file_list` and `file_read` (SAFE, `files.read`) exist only when `WORKSPACE_DIR` is
+set, and reach nothing outside it. Paths are checked twice
+(`app/tools/workspace.py`):
+
+1. **In the input model, without touching the disk**, so the safety layer denies a
+   bad path during review: absolute paths and drives, UNC and device paths, `..`,
+   any `:` (alternate data streams), Windows device names (`CON`, `NUL`, `COM1`…),
+   names ending in a dot or space (Windows strips them, so `.env.` opens `.env`),
+   and off-limits names (`.env*`, `*.pem`, `*.key`, `id_rsa*`, `.ssh`, `.git`).
+2. **In the handler, on disk:** the resolved path (symlinks and junctions followed)
+   must stay inside the workspace, off-limits names are checked again on it, and
+   files with several hard links are refused, because a hard link can point outside
+   without `resolve()` noticing.
+
+Both tools are `reads_outside_content`, so the taint rule applies. Errors never repeat
+the path, which keeps it out of the audit log. Known gap: another program could swap
+a file for a link between the check and the open; the agent cannot create links.
+`WORKSPACE_DIR` itself may not be a drive root, the home folder, or contain the
+project (or the agent could read its own database and, later, change its own code).
+
 ### Sessions and facts
 
 - **History window.** The model gets the system prompt plus about the last

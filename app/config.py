@@ -45,6 +45,35 @@ class Settings(BaseModel):
     max_repair_attempts: int = Field(default=2, ge=0, le=5)
     llm_timeout_seconds: int = Field(default=60, ge=1, le=600)
     max_history_messages: int = Field(default=20, ge=4, le=200)
+    # The only folder the file tools can reach; None means no file tools at all.
+    workspace_dir: Path | None = None
+
+    @field_validator("workspace_dir", mode="before")
+    @classmethod
+    def _empty_workspace_none(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("workspace_dir")
+    @classmethod
+    def _workspace_ok(cls, value: Path | None) -> Path | None:
+        if value is None:
+            return None
+        if not value.is_absolute():
+            raise ValueError("WORKSPACE_DIR must be an absolute path")
+        if not value.is_dir():
+            raise ValueError("WORKSPACE_DIR must be an existing folder")
+        resolved = value.resolve(strict=True)
+        if resolved == Path(resolved.anchor):
+            raise ValueError("WORKSPACE_DIR may not be a drive root")
+        if resolved == Path.home().resolve():
+            raise ValueError("WORKSPACE_DIR may not be your home folder itself; use a subfolder")
+        if PROJECT_ROOT.resolve().is_relative_to(resolved):
+            # Otherwise the agent could read its own database and audit log,
+            # and later file tools could change its own code.
+            raise ValueError("WORKSPACE_DIR may not contain the agent's own project folder")
+        return resolved
 
     @field_validator("openai_api_style")
     @classmethod
@@ -131,6 +160,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
             max_repair_attempts=_int_env("MAX_REPAIR_ATTEMPTS", 2),
             llm_timeout_seconds=_int_env("LLM_TIMEOUT_SECONDS", 60),
             max_history_messages=_int_env("MAX_HISTORY_MESSAGES", 20),
+            workspace_dir=os.getenv("WORKSPACE_DIR"),
         )
     except ValidationError as exc:
         raise ConfigError(_format_settings_error(exc)) from exc
