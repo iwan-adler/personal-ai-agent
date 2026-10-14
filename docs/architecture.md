@@ -122,6 +122,35 @@ pgvector: a second store for a size we will not reach.
    models are never mixed.
 6. Answers from notes cite their source (file and page).
 
+### D5: CLI until V0.8, then FastAPI + HTMX (decided 2026-10-14)
+
+**When: V0.8.** The CLI stays the only interface until then, as the roadmap says: a
+dashboard needs data to show, and any UI is a large new attack surface.
+
+**Stack: FastAPI with server-rendered HTML and HTMX.** It fits the roadmap, needs
+little JavaScript and no frontend build, and keeps the logic on the server where it
+is easy to secure. React was rejected unless the dashboard grows complex; Streamlit
+and Gradio because their rerun-the-script model fits approve-and-continue poorly and
+Gradio can publish public share links with one setting.
+
+**First step: pending approval with resume.** Today `confirm(prompt) -> bool` blocks
+inside the run, and `blocked_confirm` ends it, so the model must propose the call
+again. A web page cannot hold a request open until you click. The loop and safety
+layer will instead pause with an approval id, and your answer continues the *same*
+run. The CLI keeps working on top of that.
+
+**Rules for any web UI:**
+1. Listen on `127.0.0.1` only, never `0.0.0.0`; no public share links.
+2. Every request needs a session token, and the server checks `Host` and `Origin`
+   (cross-site requests and DNS rebinding: any website open in your browser can
+   send requests to `localhost`).
+3. An approval counts only with its approval id plus a one-time value from a real
+   UI action, so a replayed or made-up request approves nothing.
+4. Model and tool text is always rendered escaped, never as raw HTML, so tool output
+   cannot inject a fake "allow" button.
+5. The audit log, safety layer and grants do not change: the UI is just another way
+   to answer yes or no, like `input()` today.
+
 ## V0.4+ (not built)
 
 Do not add these until the previous milestone is approved:
@@ -132,7 +161,7 @@ Do not add these until the previous milestone is approved:
 | V0.5 | GitHub, files, Linux sandbox | Needs safety + confirmations |
 | V0.6 | Knowledge graph, university, tutor | Needs durable facts |
 | V0.7 | Planner, opportunity scout, research | Needs tasks + citations rule |
-| V0.8 | FastAPI, auth, dashboard | Needs data to show |
+| V0.8 | FastAPI + HTMX, auth, dashboard (see D5; starts with pending approval + resume) | Needs data to show |
 | V0.9 | Docker, deploy, monitoring | Needs an API worth shipping |
 | V1.0 | Personal AI OS | Composition of the above |
 
