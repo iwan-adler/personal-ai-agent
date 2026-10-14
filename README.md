@@ -1,5 +1,7 @@
 # Personal AI Agent
 
+[![tests](https://github.com/iwan-adler/personal-ai-agent/actions/workflows/tests.yml/badge.svg)](https://github.com/iwan-adler/personal-ai-agent/actions/workflows/tests.yml)
+
 A command-line AI assistant built around one rule: **the LLM proposes, Python decides.**
 
 The model never runs anything itself. Each turn it replies with a JSON decision: answer, ask a question, or call a tool. Before any tool runs, Python checks that decision against a schema, an allowlist, granted permissions, a risk level and your chosen autonomy level. Every decision is written to an audit log.
