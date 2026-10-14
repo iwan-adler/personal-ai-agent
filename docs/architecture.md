@@ -91,6 +91,37 @@ both protocols was rejected: every safety rule would have to be right twice.
 **Revisit** with the first tool that reads outside content (web pages, files,
 email), where the `role="tool"` separation is worth the migration.
 
+### D4: keyword search first, local embeddings later (decided 2026-10-14)
+
+Nothing is built yet; this frames document search for V0.6.
+
+**Search: SQLite FTS5 keyword search first.** It is built into Python's `sqlite3`,
+works offline, needs no new dependency and is strong on the exact terms lecture
+material is full of (course codes, formulas, names). Embeddings are added only once
+real searches show keyword search missing paraphrased questions; results are then
+combined (hybrid).
+
+**Embeddings: local via Ollama** (e.g. `nomic-embed-text`). Embedding through an API
+would upload *everything* loaded, personal notes included, not just the excerpts a
+chat question needs. `sentence-transformers` was rejected for pulling in PyTorch.
+
+**Storage: SQLite (D1).** Vectors as BLOBs next to their text, compared with numpy.
+That is milliseconds for a few thousand sections; the `sqlite-vec` extension can
+replace the comparison past ~100k without a schema change. No Chroma, LanceDB or
+pgvector: a second store for a size we will not reach.
+
+**Rules from day one,** whatever is built:
+1. Search results are untrusted data and reach the model as `<tool_result>`, like any
+   tool output. PDFs can carry hidden instructions.
+2. Loading documents is a `CONFIRMATION` tool limited to one configured folder;
+   searching is a `SAFE` tool. Both go through the safety layer.
+3. Loading documents is the first tool that reads outside content, so the D3 revisit
+   (native tool calling) happens before it is built.
+4. Search queries are user text: the audit log gets counts and hashes, not queries.
+5. Every vector stores its embedding model and dimension; vectors from different
+   models are never mixed.
+6. Answers from notes cite their source (file and page).
+
 ## V0.4+ (not built)
 
 Do not add these until the previous milestone is approved:
@@ -110,7 +141,7 @@ Do not add these until the previous milestone is approved:
 ## Memory plan (when V0.4 starts)
 
 - Facts and deadlines: tables (SQL), not vectors.
-- Lecture PDFs: chunk + embeddings when ingest exists.
+- Lecture PDFs: chunk + SQLite FTS5 keyword search when ingest exists; local embeddings later, only if needed (see D4).
 - Relationships: foreign keys first; a graph engine only if joins fail.
 
 ## Security invariants
