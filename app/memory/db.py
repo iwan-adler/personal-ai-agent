@@ -47,6 +47,26 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX messages_by_session ON messages (session_id, id);
     """,
+    # 3: long-term facts, with FTS5 keyword search (D4). Facts are never
+    # updated, only added or deleted, so two triggers keep the index in sync.
+    """
+    CREATE TABLE facts (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        text       TEXT NOT NULL,
+        topic      TEXT,
+        created_at TEXT NOT NULL
+    );
+    CREATE VIRTUAL TABLE facts_fts USING fts5(
+        text, topic, content='facts', content_rowid='id'
+    );
+    CREATE TRIGGER facts_after_insert AFTER INSERT ON facts BEGIN
+        INSERT INTO facts_fts (rowid, text, topic) VALUES (new.id, new.text, new.topic);
+    END;
+    CREATE TRIGGER facts_after_delete AFTER DELETE ON facts BEGIN
+        INSERT INTO facts_fts (facts_fts, rowid, text, topic)
+        VALUES ('delete', old.id, old.text, old.topic);
+    END;
+    """,
 ]
 
 

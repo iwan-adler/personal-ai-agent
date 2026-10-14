@@ -14,11 +14,13 @@ from app.conversation import Conversation
 from app.llm.client import LLMClient, LLMError
 from app.logging_setup import setup_logging
 from app.memory.db import Database
+from app.memory.facts import FactNotFound, FactStore
 from app.memory.sessions import SessionNotFound, SessionStore
 from app.memory.tasks import TaskStore
 from app.safety.permissions import DEFAULT_GRANTS, SafetyLayer
 from app.tools.base import ToolContext
 from app.tools.builtin import build_default_registry
+from app.tools.facts import register_fact_tools
 from app.tools.tasks import register_task_tools
 
 # Local, gitignored agent data (see .gitignore: data/*.db, data/*.jsonl).
@@ -38,6 +40,8 @@ HELP = """Commands:
   /resume [id]            continue a session (default: the most recent other one)
   /new                    start a new session
   /forget-session <id>    delete a session and its messages permanently
+  /facts [topic]          list what the agent remembers about you
+  /forget-fact <id>       delete a remembered fact permanently
   /help                   show this list
   quit                    exit"""
 
@@ -48,6 +52,7 @@ class ChatState:
 
     sessions: SessionStore
     audit: AuditLog
+    facts: FactStore | None = None
     conversation: Conversation = field(default_factory=Conversation)
     # Created on the first saved turn, so launching and quitting leaves no empty session.
     session_id: int | None = None
@@ -66,7 +71,7 @@ class ChatState:
             pass
 
 
-def _session_id(arg: str | None) -> int | None:
+def _parse_id(arg: str | None) -> int | None:
     try:
         return int(arg) if arg is not None else None
     except ValueError:
@@ -106,7 +111,7 @@ def handle_command(line: str, state: ChatState, confirm: Callable[[str], bool] =
                 return "No other session to resume."
             target = others[0].id
         else:
-            target = _session_id(arg)
+            target = _parse_id(arg)
             if target is None:
                 return "Usage: /resume [id]"
         try:
@@ -119,7 +124,7 @@ def handle_command(line: str, state: ChatState, confirm: Callable[[str], bool] =
         return f"Resumed session #{target} ({turns} exchanges)."
 
     if command == "/forget-session":
-        target = _session_id(arg)
+        target = _parse_id(arg)
         if target is None:
             return "Usage: /forget-session <id>"
         try:
@@ -134,6 +139,34 @@ def handle_command(line: str, state: ChatState, confirm: Callable[[str], bool] =
             state.conversation = Conversation()
             state.session_id = None
         return f"Deleted session #{target}."
+
+    if command in {"/facts", "/forget-fact"} and state.facts is None:
+        return "Fact storage is not configured."
+
+    if command == "/facts":
+        facts = state.facts.list(topic=arg)
+        if not facts:
+            return "No saved facts." if arg is None else f"No saved facts with topic '{arg}'."
+        return "\n".join(
+            f"  #{fact.id}  {f'[{fact.topic}] ' if fact.topic else ''}{fact.text}" for fact in facts
+        )
+
+    if command == "/forget-fact":
+        target = _parse_id(arg)
+        if target is None:
+            return "Usage: /forget-fact <id>"
+        try:
+            fact = state.facts.get(target)
+        except FactNotFound:
+            return f"Fact {target} not found."
+        if not confirm(f"Delete fact #{target} permanently? {fact.text!r}"):
+            return "Kept."
+        state.facts.forget(target)
+        try:
+            state.audit.write("fact_forget", fact_id=target)
+        except OSError:
+            pass
+        return f"Deleted fact #{target}."
 
     return f"Unknown command {command}. Type /help."
 
@@ -150,6 +183,7 @@ def main() -> int:
         db = Database(DATA_DIR / "agent.db")
         task_store = TaskStore(db)
         sessions = SessionStore(db)
+        facts = FactStore(db)
         audit = AuditLog(DATA_DIR / "audit.jsonl")
     except (OSError, sqlite3.Error) as exc:
         print(f"Storage error: could not open {DATA_DIR}: {exc}", file=sys.stderr)
@@ -157,6 +191,7 @@ def main() -> int:
 
     registry = build_default_registry()
     register_task_tools(registry)
+    register_fact_tools(registry)
     safety = SafetyLayer(
         registry,
         allowed_permissions=DEFAULT_GRANTS,
@@ -170,10 +205,10 @@ def main() -> int:
         safety=safety,
         logger=logger,
         confirm=_confirm,
-        tool_ctx=ToolContext(task_store=task_store),
+        tool_ctx=ToolContext(task_store=task_store, fact_store=facts),
         audit=audit,
     )
-    state = ChatState(sessions=sessions, audit=audit)
+    state = ChatState(sessions=sessions, audit=audit, facts=facts)
 
     print("Personal AI Agent (quit / exit to stop)")
     print(f"model={settings.openai_model} autonomy={int(settings.autonomy_level)}")

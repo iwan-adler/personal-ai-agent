@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ValidationError
 
 if TYPE_CHECKING:
+    from app.memory.facts import FactStore
     from app.memory.tasks import TaskStore
 
 
@@ -25,6 +26,8 @@ class ToolContext:
     notes: list[str] = field(default_factory=list)
     # Persistent task storage; None means task tools report "not configured".
     task_store: TaskStore | None = None
+    # Long-term facts; None means fact tools report "not configured".
+    fact_store: FactStore | None = None
 
 
 TRUNCATION_MARKER = "…[truncated]"

@@ -45,7 +45,15 @@ Decision = Literal["allow", "confirm", "suggest", "deny"]
 # Permissions granted to a normal session. Fail closed: a new tool is denied
 # until its permission is added here on purpose.
 DEFAULT_GRANTS: frozenset[str] = frozenset(
-    {"math.eval", "time.read", "memory.session_note", "tasks.read", "tasks.write"}
+    {
+        "math.eval",
+        "time.read",
+        "memory.session_note",
+        "tasks.read",
+        "tasks.write",
+        "facts.read",
+        "facts.write",
+    }
 )
 
 
