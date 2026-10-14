@@ -30,6 +30,23 @@ MIGRATIONS: list[str] = [
         completed_at TEXT
     );
     """,
+    # 2: sessions. Only what the user typed and the agent's final replies are
+    # stored, never tool calls or tool results (see app/memory/sessions.py).
+    """
+    CREATE TABLE sessions (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        started_at     TEXT NOT NULL,
+        last_active_at TEXT NOT NULL
+    );
+    CREATE TABLE messages (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        role       TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+        content    TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX messages_by_session ON messages (session_id, id);
+    """,
 ]
 
 

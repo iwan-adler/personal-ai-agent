@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import sqlite3
 import sys
+from collections.abc import Callable
+from dataclasses import dataclass, field
 
 from app.agent.loop import AgentLoop
 from app.audit import AuditLog
@@ -11,6 +13,8 @@ from app.config import PROJECT_ROOT, ConfigError, load_settings
 from app.conversation import Conversation
 from app.llm.client import LLMClient, LLMError
 from app.logging_setup import setup_logging
+from app.memory.db import Database
+from app.memory.sessions import SessionNotFound, SessionStore
 from app.memory.tasks import TaskStore
 from app.safety.permissions import DEFAULT_GRANTS, SafetyLayer
 from app.tools.base import ToolContext
@@ -29,6 +33,111 @@ def _confirm(prompt: str) -> bool:
     return answer in {"y", "yes"}
 
 
+HELP = """Commands:
+  /sessions               list recent sessions
+  /resume [id]            continue a session (default: the most recent other one)
+  /new                    start a new session
+  /forget-session <id>    delete a session and its messages permanently
+  /help                   show this list
+  quit                    exit"""
+
+
+@dataclass
+class ChatState:
+    """The CLI's current conversation and where it is saved."""
+
+    sessions: SessionStore
+    audit: AuditLog
+    conversation: Conversation = field(default_factory=Conversation)
+    # Created on the first saved turn, so launching and quitting leaves no empty session.
+    session_id: int | None = None
+
+    def record(self, user_text: str, reply: str) -> None:
+        if self.session_id is None:
+            self.session_id = self.sessions.start()
+            self.audit_event("session_start", self.session_id)
+        self.sessions.record_turn(self.session_id, user_text, reply)
+
+    def audit_event(self, event: str, session_id: int) -> None:
+        # Ids only, never message content. Not write-ahead: nothing runs on it.
+        try:
+            self.audit.write(event, session_id=session_id)
+        except OSError:
+            pass
+
+
+def _session_id(arg: str | None) -> int | None:
+    try:
+        return int(arg) if arg is not None else None
+    except ValueError:
+        return None
+
+
+def handle_command(line: str, state: ChatState, confirm: Callable[[str], bool] = _confirm) -> str:
+    """Run a /command typed by the user. Commands never reach the model."""
+    parts = line.split()
+    command, arg = parts[0].lower(), (parts[1] if len(parts) > 1 else None)
+
+    if command == "/help":
+        return HELP
+
+    if command == "/sessions":
+        rows = state.sessions.recent()
+        if not rows:
+            return "No saved sessions yet."
+        lines = []
+        for info in rows:
+            marker = "*" if info.id == state.session_id else " "
+            lines.append(
+                f"{marker} #{info.id}  {info.last_active_at[:16].replace('T', ' ')}  "
+                f"{info.message_count:>3} msgs  {info.preview}"
+            )
+        return "\n".join(lines)
+
+    if command == "/new":
+        state.conversation = Conversation()
+        state.session_id = None
+        return "Started a new session."
+
+    if command == "/resume":
+        if arg is None:
+            others = [i for i in state.sessions.recent() if i.id != state.session_id]
+            if not others:
+                return "No other session to resume."
+            target = others[0].id
+        else:
+            target = _session_id(arg)
+            if target is None:
+                return "Usage: /resume [id]"
+        try:
+            state.conversation = state.sessions.restore(target)
+        except SessionNotFound:
+            return f"Session {target} not found."
+        state.session_id = target
+        state.audit_event("session_resume", target)
+        turns = len(state.conversation.turns()) // 2
+        return f"Resumed session #{target} ({turns} exchanges)."
+
+    if command == "/forget-session":
+        target = _session_id(arg)
+        if target is None:
+            return "Usage: /forget-session <id>"
+        try:
+            count = len(state.sessions.messages(target))
+        except SessionNotFound:
+            return f"Session {target} not found."
+        if not confirm(f"Delete session #{target} and its {count} messages permanently?"):
+            return "Kept."
+        state.sessions.forget(target)
+        state.audit_event("session_forget", target)
+        if target == state.session_id:
+            state.conversation = Conversation()
+            state.session_id = None
+        return f"Deleted session #{target}."
+
+    return f"Unknown command {command}. Type /help."
+
+
 def main() -> int:
     try:
         settings = load_settings()
@@ -38,7 +147,9 @@ def main() -> int:
 
     logger = setup_logging(settings.log_level)
     try:
-        task_store = TaskStore(DATA_DIR / "agent.db")
+        db = Database(DATA_DIR / "agent.db")
+        task_store = TaskStore(db)
+        sessions = SessionStore(db)
         audit = AuditLog(DATA_DIR / "audit.jsonl")
     except (OSError, sqlite3.Error) as exc:
         print(f"Storage error: could not open {DATA_DIR}: {exc}", file=sys.stderr)
@@ -62,11 +173,12 @@ def main() -> int:
         tool_ctx=ToolContext(task_store=task_store),
         audit=audit,
     )
-    conversation = Conversation()
+    state = ChatState(sessions=sessions, audit=audit)
 
     print("Personal AI Agent (quit / exit to stop)")
     print(f"model={settings.openai_model} autonomy={int(settings.autonomy_level)}")
-    print(f"tasks={task_store.path} audit={audit.path}")
+    print(f"data={task_store.path} audit={audit.path}")
+    print("Type /help for session commands.")
     print()
 
     while True:
@@ -80,14 +192,25 @@ def main() -> int:
         if user_text.lower() in {"quit", "exit", "/quit"}:
             print("Bye.")
             return 0
+        if user_text.startswith("/"):
+            try:
+                print(handle_command(user_text, state))
+            except sqlite3.Error as exc:
+                print(f"Storage error: {exc}", file=sys.stderr)
+            print()
+            continue
         try:
-            run = agent.run(user_text, conversation)
+            run = agent.run(user_text, state.conversation)
         except LLMError as exc:
             print(f"LLM error: {exc}", file=sys.stderr)
             print("Check network, OPENAI_API_KEY, OPENAI_BASE_URL, and OPENAI_MODEL.")
             continue
 
         print(f"Agent: {run.final_text}")
+        try:
+            state.record(user_text, run.final_text)
+        except sqlite3.Error as exc:
+            print(f"  (not saved: {exc})", file=sys.stderr)
         print(
             f"  [run={run.run_id[:8]} status={run.status} "
             f"steps={run.step_index} tokens={run.input_tokens}+{run.output_tokens}]"
