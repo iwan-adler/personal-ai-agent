@@ -7,23 +7,12 @@ Why a table and not notes in RAM: deadlines must survive a restart, and
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterator
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS tasks (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    title        TEXT NOT NULL,
-    due_date     TEXT,                 -- YYYY-MM-DD or NULL
-    status       TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'done')),
-    created_at   TEXT NOT NULL,
-    completed_at TEXT
-);
-"""
+from app.memory.db import Database
 
 StatusFilter = Literal["open", "done", "all"]
 
@@ -51,35 +40,17 @@ def _now() -> str:
 
 
 class TaskStore:
-    """Opens a short-lived connection per call.
+    """Tasks in the agent database. The table is created by migration 1 in db.py."""
 
-    Tools run in worker threads (run_with_timeout), and a sqlite3 connection
-    must not be shared across threads, so nothing is kept open between calls.
-    """
+    def __init__(self, db: Database | Path | str) -> None:
+        self.db = db if isinstance(db, Database) else Database(db)
 
-    def __init__(self, path: Path | str, timeout_seconds: float = 5.0) -> None:
-        self.path = Path(path)
-        # How long to wait for a lock held by another process before failing.
-        self.timeout_seconds = timeout_seconds
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as conn:
-            conn.executescript(SCHEMA)
-
-    @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(self.path, timeout=self.timeout_seconds)
-        conn.row_factory = sqlite3.Row
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
+    @property
+    def path(self) -> Path:
+        return self.db.path
 
     def add(self, title: str, due_date: date | None = None) -> Task:
-        with self._connect() as conn:
+        with self.db.connect() as conn:
             cursor = conn.execute(
                 "INSERT INTO tasks (title, due_date, created_at) VALUES (?, ?, ?)",
                 (title, due_date.isoformat() if due_date else None, _now()),
@@ -90,7 +61,7 @@ class TaskStore:
         """Earliest deadline first; tasks without a deadline last."""
         where = "" if status == "all" else "WHERE status = ?"
         params: tuple = () if status == "all" else (status,)
-        with self._connect() as conn:
+        with self.db.connect() as conn:
             rows = conn.execute(
                 f"SELECT * FROM tasks {where} "
                 "ORDER BY due_date IS NULL, due_date, id LIMIT ?",
@@ -99,7 +70,7 @@ class TaskStore:
         return [Task(**dict(row)) for row in rows]
 
     def complete(self, task_id: int) -> Task:
-        with self._connect() as conn:
+        with self.db.connect() as conn:
             task = self._get(conn, task_id)
             if task.status == "done":
                 raise TaskAlreadyDone(f"Task {task_id} is already done.")
