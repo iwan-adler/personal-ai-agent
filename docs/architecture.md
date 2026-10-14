@@ -1,6 +1,6 @@
 # Architecture (living document)
 
-This repo implements **V0.1–V0.3** of the Personal AI OS, plus one V0.4 slice (tasks + audit log). The rest of V0.4+ stays gated until the current slice is used and approved.
+This repo implements **V0.1–V0.4** of the Personal AI OS (V0.4: tasks, sessions, facts and the audit log). V0.5+ stays gated until the current milestone is used and approved.
 
 ## What exists now
 
@@ -9,11 +9,28 @@ User (CLI)
   → AgentLoop (JSON decisions, max steps, token budget, traces)
       → LLMClient (OpenAI-compatible; secrets stay in the client)
       → SafetyLayer (schema, allowlist, permission, risk vs autonomy)
-      → ToolRegistry (calculator, time_now, echo_note, task_add, task_list, task_complete)
+      → ToolRegistry (calculator, time_now, echo_note, task_*, fact_save/search/list)
       → AuditLog (data/audit.jsonl, append-only, write-ahead for tool decisions)
-Short-term memory: Conversation list in RAM only
-Long-term memory: TaskStore (data/agent.db, SQLite) — tasks only so far
+Short-term memory: Conversation in RAM; only the last MAX_HISTORY_MESSAGES go to the model
+Long-term memory: data/agent.db (SQLite, numbered migrations in app/memory/db.py)
+  tasks · sessions + messages (what you typed + final replies) · facts (+ FTS5 index)
 ```
+
+### Sessions and facts
+
+- **History window.** The model gets the system prompt plus about the last
+  `MAX_HISTORY_MESSAGES` messages. The window always starts at something the user
+  said, so a `<tool_result>` or repair request is never sent without its call, and
+  the current request is never cut. Old tool output therefore leaves the context.
+- **Sessions** store only what you typed and the agent's final replies, never tool
+  calls or tool results: an instruction planted in an old tool result cannot return
+  in a later session. Each launch starts a new session; `/resume` continues one.
+- **Facts** are saved only by `fact_save` (`CONFIRMATION` at every level, exact text
+  shown) and reach the model only as `<tool_result>` data from `fact_search` /
+  `fact_list`, never in the system prompt. Search queries become quoted plain words,
+  so model text cannot act as FTS5 syntax. No tool deletes: only `/forget-fact` and
+  `/forget-session`, typed by you, after a y/N prompt.
+- Stored messages and facts are **unencrypted**; the audit log gets ids only.
 
 ### Level 4 grants
 
@@ -157,7 +174,7 @@ Do not add these until the previous milestone is approved:
 
 | Version | What | Why wait |
 |---|---|---|
-| V0.4 | SQLite sessions, facts (~~tasks~~ done) | Need a working loop first |
+| V0.4 | ~~SQLite tasks, sessions, facts~~ done | Need a working loop first |
 | V0.5 | GitHub, files, Linux sandbox | Needs safety + confirmations |
 | V0.6 | Knowledge graph, university, tutor | Needs durable facts |
 | V0.7 | Planner, opportunity scout, research | Needs tasks + citations rule |
@@ -167,9 +184,9 @@ Do not add these until the previous milestone is approved:
 
 **Not now:** PostgreSQL, Redis, Neo4j, LangChain-as-core, voice, email sending, unrestricted shell, dashboard.
 
-## Memory plan (when V0.4 starts)
+## Memory plan
 
-- Facts and deadlines: tables (SQL), not vectors.
+- Facts and deadlines: tables (SQL), not vectors. Done in V0.4 (`tasks`, `facts`).
 - Lecture PDFs: chunk + SQLite FTS5 keyword search when ingest exists; local embeddings later, only if needed (see D4).
 - Relationships: foreign keys first; a graph engine only if joins fail.
 

@@ -8,7 +8,7 @@ The model never runs anything itself. Each turn it replies with a JSON decision:
 
 It works with OpenAI, any OpenAI-compatible API (Groq and others), or a **free local model through Ollama**.
 
-> Status: milestone **V0.3** (conversation, tools, agent loop) plus the first **V0.4** slice (a persistent task list and an audit log). Planned features like long-term memory, GitHub and file tools, and a dashboard are **not built yet**. See the [roadmap](docs/architecture.md).
+> Status: milestone **V0.4** (conversation, tools, agent loop, audit log, plus persistent tasks, chat sessions and long-term facts in SQLite). Planned features like GitHub and file tools, document search and a dashboard are **not built yet**. See the [roadmap](docs/architecture.md).
 
 ## Why build it this way
 
@@ -41,7 +41,7 @@ flowchart LR
 
 ## Features
 
-- **Multi-turn CLI chat** with conversation history for the session
+- **Multi-turn CLI chat** with saved sessions you can resume after a restart. Only the last `MAX_HISTORY_MESSAGES` messages are sent to the model each turn.
 - **Tools:**
 
   | Tool | Risk | What it does |
@@ -52,9 +52,12 @@ flowchart LR
   | `task_list` | SAFE | Your saved tasks, earliest deadline first |
   | `task_add` | CONFIRMATION | Add a task, with an optional `YYYY-MM-DD` deadline (no past dates) |
   | `task_complete` | CONFIRMATION | Mark a task done by id |
+  | `fact_search` | SAFE | Keyword search over what you told the agent in earlier sessions |
+  | `fact_list` | SAFE | Saved facts, newest first, optionally one topic |
+  | `fact_save` | CONFIRMATION | Remember a fact about you (up to 300 characters); you see the exact text first |
 
-  There is deliberately no delete tool.
-- **Persistent tasks** in SQLite (`data/agent.db`)
+  No tool can delete anything. Facts and sessions are deleted only by your own `/forget-fact` and `/forget-session` commands.
+- **Persistent storage** in SQLite (`data/agent.db`): tasks, chat sessions and facts, with numbered schema migrations. Sessions store only what you typed and the agent's final replies, never tool calls or tool results, so an instruction planted in an old tool result can't come back later.
 - **Audit trail** in `data/audit.jsonl`, one JSON line per event (`run_start`, `tool_review`, `tool_confirmation`, `step`, `run_end`, and `tool_late_finish` when a timed-out tool completes afterwards). It records the decision, the reason, the risk level, an **args hash** and the result status. It never records your messages, raw arguments or successful tool output.
 - **Any OpenAI-compatible provider**, using either the Chat Completions or the Responses API
 - **Clear config errors.** A missing key or a typo in `.env` produces a one-line message naming the variable, never a stack trace or the secret itself.
@@ -126,6 +129,22 @@ python -m app.main
 
 Type a message, answer `y`/`N` when a tool needs confirmation, and type `quit` to exit. Each turn prints the run status, token usage and a one-line summary per step.
 
+Commands (handled by the CLI, never sent to the model):
+
+| Command | What it does |
+|---|---|
+| `/sessions` | List recent sessions (`*` marks the current one) |
+| `/resume [id]` | Continue a session; without an id, the most recent other one |
+| `/new` | Start a new session |
+| `/forget-session <id>` | Delete a session and its messages permanently (asks first) |
+| `/facts [topic]` | List what the agent remembers about you |
+| `/forget-fact <id>` | Delete a remembered fact permanently (asks first) |
+| `/help` | Show the list |
+
+Each launch starts a new session; it is saved from your first message on.
+
+> **Privacy:** your messages, the agent's replies and saved facts are stored **unencrypted** in `data/agent.db`. The file is gitignored, but anyone with access to your computer can read it. The audit log never contains them, only ids.
+
 ## Configuration
 
 All settings live in `.env` ([`.env.example`](.env.example) documents each one).
@@ -137,6 +156,7 @@ All settings live in `.env` ([`.env.example`](.env.example) documents each one).
 | `MAX_TOKENS_PER_RUN` | `50000` | Token budget per message |
 | `MAX_REPAIR_ATTEMPTS` | `2` | Times to ask the model to fix malformed JSON (0–5) |
 | `LLM_TIMEOUT_SECONDS` | `60` | Per API call; the SDK retries up to 2 more times |
+| `MAX_HISTORY_MESSAGES` | `20` | Recent messages sent to the model each turn (4–200) |
 | `OPENAI_API_STYLE` | `chat` | `chat` (most compatible) or `responses` |
 | `LOG_LEVEL` | `INFO` | Structured JSON logs go to stderr |
 
@@ -165,12 +185,15 @@ tail -n 20 data/audit.jsonl               # macOS / Linux
 python -m pytest
 ```
 
-There are 123 tests, which run in a couple of seconds with **no network and no API cost**. A `FakeLLMClient` replays scripted model replies. The tests cover:
+There are 295 tests (counting parametrised cases), which run in a few seconds with **no network and no API cost**. A `FakeLLMClient` replays scripted model replies. The tests cover:
 
-- the agent loop: repair of malformed output, budgets, repeated-failure stops, and tool output that tries to break out of its `<tool_result>` block
-- the safety layer: every autonomy level, missing permissions, `HIGH_RISK` always confirming
+- the agent loop: repair of malformed output, budgets, repeated-failure and repeated-call stops, the history window, and tool output that tries to break out of its `<tool_result>` block
+- the safety layer: every autonomy level, missing permissions, `HIGH_RISK` always confirming, Level 4 grants, duplicate writes
+- secrets: the API key never in printed settings, errors or child processes; subprocesses only through the allowlisted runner
+- the audit log: no raw arguments, tool output or model output in it, and surviving a crash mid-write
 - config validation, and tool timeouts with a deliberately hanging tool
 - the task workflow end to end: request → confirmation → SQLite → audit, including declined confirmations, invalid dates, missing permissions, persistence across sessions, and audit-write failures (the tool must not run)
+- sessions and facts: tool results never saved, FTS5 syntax in search queries treated as plain text, saving facts always asks, deleting only by command, schema migrations keeping old data
 
 ## Project structure
 
@@ -179,8 +202,9 @@ app/
   main.py              CLI entry point; wires storage, tools, safety and the loop together
   agent/loop.py        THINK → ACT → OBSERVE loop, JSON parsing and repair, budgets, tracing
   safety/permissions.py  SafetyLayer: allowlist → schema → permission → risk vs autonomy
-  tools/               Tool contract with timeouts, built-in tools, task tools
-  memory/tasks.py      SQLite task store
+  tools/               Tool contract with timeouts, built-in, task and fact tools, subprocess runner
+  memory/              SQLite database with migrations; tasks, sessions and facts stores
+  conversation.py      Conversation history and the window sent to the model
   audit.py             Append-only JSONL audit log
   llm/client.py        OpenAI-compatible client wrapper + FakeLLMClient for tests
   config.py            Typed settings loaded from .env
@@ -191,7 +215,8 @@ tests/                 pytest suite
 ## Limitations
 
 - **CLI only**, for a single local user.
-- **Conversation memory lasts only for the current session.** Only tasks persist.
+- **Stored data is not encrypted.** Sessions and facts sit in `data/agent.db` in plain text.
+- **Fact search is keyword-based** (SQLite FTS5): it finds "DBMS exam" but not a paraphrase like "database test". Local embeddings are planned only if this proves too weak (see D4 in the architecture doc).
 - **Small local models are unreliable at the JSON format.** The repair loop fixes malformed output, but it can't make weak answers better (see the example session).
 - **A tool timeout stops the agent waiting, but can't kill a stuck Python thread.** I/O tools must pass their own timeouts, as documented in `app/tools/base.py`.
 - **No `HIGH_RISK` tools exist yet.** The confirmation path for them is implemented and tested, ready for future file, GitHub or shell tools.
@@ -200,7 +225,7 @@ tests/                 pytest suite
 
 Each milestone is gated on the previous one being used and stable. The full table and its reasoning are in [docs/architecture.md](docs/architecture.md).
 
-- **V0.4:** SQLite sessions and facts (tasks ✅ done)
+- **V0.4:** tasks, sessions and facts in SQLite ✅ done
 - **V0.5:** GitHub, file and sandboxed Linux tools (these will be the first `HIGH_RISK` tools)
 - **V0.6–V0.7:** knowledge graph, university tutor, planner and research with citations
 - **V0.8–V0.9:** FastAPI, authentication, dashboard, then Docker and deployment
