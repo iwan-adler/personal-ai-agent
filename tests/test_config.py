@@ -55,6 +55,7 @@ def env_file(monkeypatch, tmp_path):
         "MAX_TOKENS_PER_RUN",
         "MAX_REPAIR_ATTEMPTS",
         "LLM_TIMEOUT_SECONDS",
+        "MAX_HISTORY_MESSAGES",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
@@ -76,6 +77,8 @@ def env_file(monkeypatch, tmp_path):
         ("LLM_TIMEOUT_SECONDS", "0"),
         ("LLM_TIMEOUT_SECONDS", "601"),
         ("LLM_TIMEOUT_SECONDS", "abc"),
+        ("MAX_HISTORY_MESSAGES", "3"),
+        ("MAX_HISTORY_MESSAGES", "201"),
         ("AUTONOMY_LEVEL", "9"),
         ("AUTONOMY_LEVEL", "high"),
         ("OPENAI_API_STYLE", "rpc"),

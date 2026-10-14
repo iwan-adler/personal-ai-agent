@@ -347,7 +347,7 @@ class AgentLoop:
                 if len(bad_reply) > REPAIR_REPLY_MAX_CHARS:
                     bad_reply = bad_reply[:REPAIR_REPLY_MAX_CHARS] + "…"
                 conv.add_assistant(bad_reply)
-                conv.add_user(_repair_message(exc))
+                conv.add_user(_repair_message(exc), kind="repair")
                 continue
             repair_attempts = 0
 
@@ -429,7 +429,7 @@ class AgentLoop:
                 extra={"event": {"run_id": run.run_id, "summary": summary, "status": step_status}},
             )
             conv.add_assistant(result.text)
-            conv.add_user(_wrap_observation(tool_name, step_status, observation))
+            conv.add_user(_wrap_observation(tool_name, step_status, observation), kind="tool_result")
             run.step_index += 1
 
             if step_status == "repeated":
@@ -469,7 +469,9 @@ class AgentLoop:
                 return run
 
     def _think(self, conv: Conversation) -> CompletionResult:
-        return self.llm.complete(conv.messages)
+        # Only a window goes to the model: the full history would grow every
+        # request's cost without bound and keep old tool output in context.
+        return self.llm.complete(conv.window(self.settings.max_history_messages))
 
     def _act(
         self, decision: AgentAction, run: AgentRun
