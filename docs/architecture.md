@@ -68,6 +68,29 @@ The LLM **proposes**. Python **decides**. Tools **act** only after safety review
 
 If the model invents a destructive command, it still cannot run unless a registered tool exists, arguments validate, permission is granted, and autonomy/confirmation allow it. Permissions fail closed: `SafetyLayer` requires an explicit grant set (`DEFAULT_GRANTS` for a normal session), so a newly registered tool is denied until its permission is granted on purpose. Wrapping the vendor SDK lets tests use `FakeLLMClient` so CI never spends money or hits the network.
 
+## Decisions
+
+### D3: hand-written loop, JSON-in-text protocol (decided 2026-10-14)
+
+**Hand-written, not a framework** (OpenAI Agents SDK, LangGraph, LangChain). The
+safety guarantees depend on a fixed order inside `AgentLoop._act`: review →
+write-ahead audit → confirmation → grant → duplicate check → timeout → output limit
+and wrapping. With a framework, its tool execution would decide that order and
+could change it with any update. Keeping the loop in our code keeps "the model
+proposes, Python decides" readable and tested.
+
+**JSON-in-text, not native tool calling.** The model replies with one JSON object
+(`action`, `tool`, `args`, `summary`) as plain text. It works with every
+OpenAI-compatible provider, including small local Ollama models, and its weak points
+are covered: malformed output gets bounded repair retries, and tool output is
+wrapped as untrusted `<tool_result>` data. Native tool calling (`role="tool"`
+messages) would separate tool output more cleanly but means rebuilding the loop,
+both API styles and about 70 tests, plus finding a home for `summary`. Supporting
+both protocols was rejected: every safety rule would have to be right twice.
+
+**Revisit** with the first tool that reads outside content (web pages, files,
+email), where the `role="tool"` separation is worth the migration.
+
 ## V0.4+ (not built)
 
 Do not add these until the previous milestone is approved:
