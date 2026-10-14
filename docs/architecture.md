@@ -41,6 +41,9 @@ approve, `SafetyLayer` grants that **one tool name** for the **current request**
 request, it asks again. Only offers the safety layer issued can become grants. The loop
 passes your answer back and decides nothing itself. Grants live in memory only, are
 audited (`grant_created`, `grant_id` on `tool_review`), and never apply to `HIGH_RISK`.
+Once a tool that reads outside content (`reads_outside_content=True`: files, GitHub)
+has started in a request, grants are suspended for the rest of it: no use is spent,
+none is offered, and every write asks. A read that failed or timed out still counts.
 
 ### Repeated calls
 
@@ -107,6 +110,14 @@ both protocols was rejected: every safety rule would have to be right twice.
 
 **Revisit** with the first tool that reads outside content (web pages, files,
 email), where the `role="tool"` separation is worth the migration.
+
+**Revisited 2026-10-14 (before V0.5's file tools): kept.** A `role="tool"` message
+separates outside text a little more cleanly, but it does not stop a model from
+following injected instructions; the safety layer is the real barrier, and the
+migration cost is unchanged. The actual gap was Level 4 grants: injected text read
+mid-request could spend the remaining uses without a prompt. The answer is the
+**taint rule**: tools marked `reads_outside_content=True` suspend all grants for the
+rest of that request, so every write after reading outside content asks.
 
 ### D4: keyword search first, local embeddings later (decided 2026-10-14)
 

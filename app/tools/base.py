@@ -74,6 +74,10 @@ class Tool:
     handler: Callable[[ToolContext, BaseModel], BaseModel]
     timeout_seconds: float = 10.0
     max_output_bytes: int = 8_192
+    # True for tools that bring in text from outside the agent's own data (files,
+    # web pages, GitHub issues), which may carry injected instructions. Once one
+    # runs, the safety layer suspends Level 4 grants for the rest of the request.
+    reads_outside_content: bool = False
 
     def __post_init__(self) -> None:
         # "not > 0" also rejects NaN, which would make join() wait forever.

@@ -11,6 +11,10 @@ are never grantable.
 Duplicate writes: a CONFIRMATION or HIGH_RISK call identical to one already
 started in the same request always asks again, even under a grant. "Started",
 not "succeeded": after a timeout or error the first call may still have acted.
+
+Outside content ("taint"): once a tool with reads_outside_content=True has
+started in a request, grants are suspended for the rest of it, so text read
+from a file or web page can never drive a write without a person saying yes.
 """
 
 from __future__ import annotations
@@ -124,6 +128,8 @@ class SafetyLayer:
         self._offers: dict[str, GrantOffer] = {}
         # Calls started per request, as (tool name, hash of validated args).
         self._started: dict[str, set[tuple[str, str]]] = {}
+        # Requests that ran a tool reading outside content ("tainted").
+        self._tainted: set[str] = set()
 
     @property
     def autonomy(self) -> AutonomyLevel:
@@ -150,12 +156,19 @@ class SafetyLayer:
         return grant
 
     def note_started(self, run_id: str, tool_name: str, parsed_args: Any) -> None:
-        """Called by the loop just before a tool runs; review() uses it to spot duplicates."""
+        """Called by the loop just before a tool runs; review() uses it to spot
+        duplicates and requests that read outside content."""
         self._started.setdefault(run_id, set()).add((tool_name, _call_key(parsed_args)))
+        tool = self.registry.get(tool_name)
+        if tool is not None and tool.reads_outside_content:
+            # At start, not on success: a read that timed out or failed may
+            # still have delivered content.
+            self._tainted.add(run_id)
 
     def end_run(self, run_id: str) -> None:
-        """Drop every grant, open offer and started-call record of a finished request."""
+        """Drop every grant, open offer, started-call record and taint of a finished request."""
         self._started.pop(run_id, None)
+        self._tainted.discard(run_id)
         self._grants = {k: g for k, g in self._grants.items() if g.run_id != run_id}
         self._offers = {k: o for k, o in self._offers.items() if o.run_id != run_id}
 
@@ -259,6 +272,15 @@ class SafetyLayer:
         )
 
     def _review_grant(self, tool: Tool, parsed: Any, run_id: str | None) -> SafetyDecision:
+        if run_id is not None and run_id in self._tainted:
+            # Text read from outside could be steering the model now, so no grant
+            # is used (nor a use counted) and none is offered: every write asks.
+            return SafetyDecision(
+                decision="confirm",
+                reason="This request read outside content; grants are suspended, so every write asks.",
+                tool=tool,
+                parsed_args=parsed,
+            )
         grant = self._grants.get((run_id, tool.name)) if run_id else None
         if grant is not None and grant.uses < grant.max_uses:
             # Counted at decision time, matching the write-ahead audit of this decision.
