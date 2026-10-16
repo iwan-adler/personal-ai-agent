@@ -64,6 +64,11 @@ flowchart LR
   | `github_pr_list` | SAFE | Pull requests of a repo in `GITHUB_REPOS`, with branches and draft status |
   | `github_issue_comment` | HIGH_RISK | **Publish** a comment on an issue or PR in `GITHUB_WRITE_REPOS` |
   | `github_issue_create` | HIGH_RISK | **Publish** a new issue in `GITHUB_WRITE_REPOS` |
+  | `doc_import` | CONFIRMATION | Import `.md`, `.txt` and `.pdf` files from `library/` in your workspace into the document library (unchanged files are skipped) |
+  | `doc_search` | SAFE | Keyword search in your documents; every hit comes with a citation such as `lecture3.pdf, p. 12` |
+  | `doc_list` | SAFE | The documents in your library |
+
+  PDFs are parsed in a **separate process** (isolated, without your keys, killed after 60 s), because crafted PDFs can make parsers hang. Limits: 50 MB and 1,000 pages per PDF, 5 MB per text file. Encrypted PDFs are refused. OneNote notebooks can't be read directly: export them as PDF or Markdown into `library/`.
 
   Publishing always asks. The prompt shows the target (with the issue's current title), whether the repo is public, every @mention (they notify people) and the full text exactly as it will be posted. Text that looks like a secret (`sk-…`, `github_pat_…`, `ghp_…`, AWS keys, private keys) or contains one of your configured keys is refused before you are even asked.
 
@@ -152,6 +157,8 @@ Commands (handled by the CLI, never sent to the model):
 | `/forget-session <id>` | Delete a session and its messages permanently (asks first) |
 | `/facts [topic]` | List what the agent remembers about you |
 | `/forget-fact <id>` | Delete a remembered fact permanently (asks first) |
+| `/docs` | List the documents in your library |
+| `/forget-doc <id>` | Remove a document from the library; the file itself stays (asks first) |
 | `/help` | Show the list |
 
 Each launch starts a new session; it is saved from your first message on.
@@ -237,7 +244,7 @@ tests/                 pytest suite
 
 - **CLI only**, for a single local user.
 - **Stored data is not encrypted.** Sessions and facts sit in `data/agent.db` in plain text.
-- **Fact search is keyword-based** (SQLite FTS5): it finds "DBMS exam" but not a paraphrase like "database test". Local embeddings are planned only if this proves too weak (see D4 in the architecture doc).
+- **Fact and document search are keyword-based** (SQLite FTS5): they find "DBMS exam" but not a paraphrase like "database test". Scanned PDFs (images without a text layer) yield no text. Local embeddings are planned only if this proves too weak (see D4 in the architecture doc).
 - **Small local models are unreliable at the JSON format.** The repair loop fixes malformed output, but it can't make weak answers better (see the example session).
 - **A tool timeout stops the agent waiting, but can't kill a stuck Python thread.** I/O tools must pass their own timeouts, as documented in `app/tools/base.py`.
 - **No `HIGH_RISK` tools exist yet.** The confirmation path for them is implemented and tested, ready for future file, GitHub or shell tools.

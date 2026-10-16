@@ -56,10 +56,10 @@ def safe_env() -> dict[str, str]:
     return {name: value for name, value in os.environ.items() if name.upper() in ENV_ALLOWLIST}
 
 
-def _truncate(text: str) -> str:
-    if len(text) <= MAX_OUTPUT_CHARS:
+def _truncate(text: str, limit: int) -> str:
+    if len(text) <= limit:
         return text
-    return text[:MAX_OUTPUT_CHARS] + "…[truncated]"
+    return text[:limit] + "…[truncated]"
 
 
 def run_command(
@@ -67,12 +67,18 @@ def run_command(
     *,
     timeout_seconds: float,
     cwd: str | Path | None = None,
+    max_output_chars: int = MAX_OUTPUT_CHARS,
 ) -> CommandResult:
     """Run a program without a shell, with a scrubbed environment and a hard timeout.
+
+    max_output_chars caps stdout and stderr each; raise it only for a trusted
+    helper whose own output is bounded (e.g. the PDF extractor).
 
     Raises TypeError/ValueError for unsafe or empty arguments and ToolTimeout
     (after the child was killed) when the timeout expires.
     """
+    if max_output_chars < 1:
+        raise ValueError("max_output_chars must be >= 1.")
     # A str is a Sequence too; passing one would mean "parse this as a command line".
     if isinstance(args, (str, bytes)) or not isinstance(args, Sequence):
         raise TypeError("args must be a list of strings, not a command-line string.")
@@ -101,6 +107,6 @@ def run_command(
         raise ToolTimeout(f"Command timed out after {timeout_seconds:g}s and was stopped.") from exc
     return CommandResult(
         returncode=completed.returncode,
-        stdout=_truncate(completed.stdout),
-        stderr=_truncate(completed.stderr),
+        stdout=_truncate(completed.stdout, max_output_chars),
+        stderr=_truncate(completed.stderr, max_output_chars),
     )

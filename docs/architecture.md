@@ -53,6 +53,24 @@ workspace, last 20 kept); no backup, no overwrite. Types Windows runs on
 double-click (`.exe .bat .cmd .ps1 .js .vbs .lnk .reg …`) are never written, and
 there is no delete, append or mkdir tool.
 
+### Document library (V0.6, implements D4)
+
+`doc_import` (CONFIRMATION, `docs.write`) reads `.md`, `.txt` and `.pdf` from
+`WORKSPACE_DIR/library/` only, with the same two-layer path checks as the file tools
+(every file re-checked, so a junction or hard link inside `library/` pulls nothing in
+from outside). Unchanged files (same sha256) are skipped; a changed file replaces its
+chunks in one transaction. It returns counts only, never names or content, so it does
+not taint. `doc_search` / `doc_list` (SAFE, `docs.read`) are `reads_outside_content`;
+every hit carries a ready-made citation (`file, p. N` or `file, line N`) that the tool
+description tells the model to quote. Storage is migration 4: `documents`, `chunks`
+and an FTS5 index; queries are reduced to quoted words like fact search.
+
+PDFs are parsed by `app/tools/pdf_extract.py` (pypdf 6.19.0, hash-pinned) in a
+**separate process** started through `run_command`: Python's isolated mode, the
+allowlisted environment without keys, and a 60 s timeout that kills it, because
+crafted PDFs can make parsers loop or exhaust memory. Limits: 50 MB and 1,000 pages
+per PDF, 5 MB of text per file; encrypted PDFs are refused.
+
 ### GitHub (read-only, V0.5)
 
 `github_issue_list`, `github_issue_read` and `github_pr_list` (SAFE, `github.read`,

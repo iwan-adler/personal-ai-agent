@@ -15,12 +15,14 @@ from app.conversation import Conversation
 from app.llm.client import LLMClient, LLMError
 from app.logging_setup import setup_logging
 from app.memory.db import Database
+from app.memory.documents import DocumentNotFound, DocumentStore
 from app.memory.facts import FactNotFound, FactStore
 from app.memory.sessions import SessionNotFound, SessionStore
 from app.memory.tasks import TaskStore
 from app.safety.permissions import DEFAULT_GRANTS, SafetyLayer
 from app.tools.base import ToolContext, ToolRegistry
 from app.tools.builtin import build_default_registry
+from app.tools.docs import register_doc_tools
 from app.tools.facts import register_fact_tools
 from app.tools.file_write import register_file_write_tools
 from app.tools.files import register_file_tools
@@ -48,6 +50,8 @@ HELP = """Commands:
   /forget-session <id>    delete a session and its messages permanently
   /facts [topic]          list what the agent remembers about you
   /forget-fact <id>       delete a remembered fact permanently
+  /docs                   list the documents in your library
+  /forget-doc <id>        remove a document from the library (not the file)
   /help                   show this list
   quit                    exit"""
 
@@ -59,6 +63,7 @@ class ChatState:
     sessions: SessionStore
     audit: AuditLog
     facts: FactStore | None = None
+    docs: DocumentStore | None = None
     conversation: Conversation = field(default_factory=Conversation)
     # Created on the first saved turn, so launching and quitting leaves no empty session.
     session_id: int | None = None
@@ -82,6 +87,34 @@ def _parse_id(arg: str | None) -> int | None:
         return int(arg) if arg is not None else None
     except ValueError:
         return None
+
+
+def _doc_command(command: str, arg: str | None, state: ChatState, confirm: Callable[[str], bool]) -> str:
+    if state.docs is None:
+        return "The document library is not configured."
+    if command == "/docs":
+        documents = state.docs.list()
+        if not documents:
+            return "No documents yet. Put files in library/ in your workspace and ask the agent to import them."
+        return "\n".join(
+            f"  #{d.id}  {d.path}  ({d.kind}, {d.pages or '-'} pages, {d.chunk_count} sections)"
+            for d in documents
+        )
+    target = _parse_id(arg)
+    if target is None:
+        return "Usage: /forget-doc <id>"
+    try:
+        document = state.docs.get(target)
+    except DocumentNotFound:
+        return f"Document {target} not found."
+    if not confirm(f"Remove document #{target} ({document.path}) from the library? The file itself stays."):
+        return "Kept."
+    state.docs.forget(target)
+    try:
+        state.audit.write("doc_forget", document_id=target)
+    except OSError:
+        pass
+    return f"Removed document #{target} from the library."
 
 
 def handle_command(line: str, state: ChatState, confirm: Callable[[str], bool] = _confirm) -> str:
@@ -146,6 +179,9 @@ def handle_command(line: str, state: ChatState, confirm: Callable[[str], bool] =
             state.session_id = None
         return f"Deleted session #{target}."
 
+    if command in {"/docs", "/forget-doc"}:
+        return _doc_command(command, arg, state, confirm)
+
     if command in {"/facts", "/forget-fact"} and state.facts is None:
         return "Fact storage is not configured."
 
@@ -190,6 +226,7 @@ def build_registry(settings: Settings, backup_dir: Path = DATA_DIR / "file-backu
     if settings.workspace_dir is not None:
         register_file_tools(registry, settings.workspace_dir)
         register_file_write_tools(registry, settings.workspace_dir, backup_dir)
+        register_doc_tools(registry, settings.workspace_dir)
     if settings.github_repos:
         register_github_tools(registry, settings.github_repos, GitHubClient(settings.github_token))
     if settings.github_write_repos:
@@ -216,6 +253,7 @@ def main() -> int:
         task_store = TaskStore(db)
         sessions = SessionStore(db)
         facts = FactStore(db)
+        docs = DocumentStore(db)
         audit = AuditLog(DATA_DIR / "audit.jsonl")
     except (OSError, sqlite3.Error) as exc:
         print(f"Storage error: could not open {DATA_DIR}: {exc}", file=sys.stderr)
@@ -235,10 +273,10 @@ def main() -> int:
         safety=safety,
         logger=logger,
         confirm=_confirm,
-        tool_ctx=ToolContext(task_store=task_store, fact_store=facts),
+        tool_ctx=ToolContext(task_store=task_store, fact_store=facts, doc_store=docs),
         audit=audit,
     )
-    state = ChatState(sessions=sessions, audit=audit, facts=facts)
+    state = ChatState(sessions=sessions, audit=audit, facts=facts, docs=docs)
 
     print("Personal AI Agent (quit / exit to stop)")
     print(f"model={settings.openai_model} autonomy={int(settings.autonomy_level)}")

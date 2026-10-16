@@ -61,6 +61,8 @@ DEFAULT_GRANTS: frozenset[str] = frozenset(
         "files.write",
         "github.read",
         "github.write",
+        "docs.read",
+        "docs.write",
     }
 )
 

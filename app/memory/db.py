@@ -67,6 +67,36 @@ MIGRATIONS: list[str] = [
         VALUES ('delete', old.id, old.text, old.topic);
     END;
     """,
+    # 4: document library (V0.6). A document is a file under the workspace's
+    # library/ folder; its chunks carry a page (PDF) or start line (text) for
+    # citations. FTS5 over chunk text, kept in sync by triggers like facts.
+    """
+    CREATE TABLE documents (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        path        TEXT NOT NULL UNIQUE,   -- relative to library/, '/' separators
+        kind        TEXT NOT NULL CHECK (kind IN ('pdf', 'text')),
+        sha256      TEXT NOT NULL,
+        size_bytes  INTEGER NOT NULL,
+        pages       INTEGER,                -- PDFs only
+        imported_at TEXT NOT NULL
+    );
+    CREATE TABLE chunks (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+        seq         INTEGER NOT NULL,
+        page        INTEGER,
+        line        INTEGER,
+        text        TEXT NOT NULL
+    );
+    CREATE INDEX chunks_by_document ON chunks (document_id, seq);
+    CREATE VIRTUAL TABLE chunks_fts USING fts5(text, content='chunks', content_rowid='id');
+    CREATE TRIGGER chunks_after_insert AFTER INSERT ON chunks BEGIN
+        INSERT INTO chunks_fts (rowid, text) VALUES (new.id, new.text);
+    END;
+    CREATE TRIGGER chunks_after_delete AFTER DELETE ON chunks BEGIN
+        INSERT INTO chunks_fts (chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
+    END;
+    """,
 ]
 
 
