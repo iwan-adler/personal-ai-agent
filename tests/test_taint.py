@@ -41,7 +41,8 @@ FINISH = json.dumps({"action": "finish", "text": "Done.", "summary": "Done."})
 
 
 class _Env:
-    def __init__(self, tmp_path, replies, *, autonomy=L4, reader=None, confirm=lambda _p: True):
+    def __init__(self, tmp_path, replies, *, autonomy=L4, reader=None, confirm=lambda _p: True,
+                 reader_timeout=5.0):
         registry = build_default_registry()
         register_task_tools(registry)
         registry.register(
@@ -53,7 +54,9 @@ class _Env:
                 permission="test",
                 risk=RiskLevel.SAFE,
                 handler=reader or (lambda ctx, args: _Text(text=INJECTED)),
-                timeout_seconds=0.2,
+                # Generous by default: a normal read must never count as a timeout
+                # just because the machine is busy. Only the timeout test shortens it.
+                timeout_seconds=reader_timeout,
                 reads_outside_content=True,
             )
         )
@@ -123,7 +126,8 @@ def test_a_failed_read_still_taints(tmp_path, outcome):
         return _Text(text="late")
 
     env = _Env(tmp_path, [_add("Task 1"), _call("read_page"), _add("Task 2"), FINISH],
-               reader=reader, confirm=lambda p: "outside content" not in p)
+               reader=reader, confirm=lambda p: "outside content" not in p,
+               reader_timeout=0.2 if outcome == "timeout" else 5.0)
     try:
         run = env.agent.run("add, read, add")
     finally:
