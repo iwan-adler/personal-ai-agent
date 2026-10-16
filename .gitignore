@@ -30,6 +30,7 @@ Thumbs.db
 data/*.db
 data/*.db-journal
 data/*.jsonl
+data/file-backups/
 
 .freebuff/
 OneNote Notebooks/

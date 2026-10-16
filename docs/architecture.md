@@ -38,6 +38,21 @@ a file for a link between the check and the open; the agent cannot create links.
 `WORKSPACE_DIR` itself may not be a drive root, the home folder, or contain the
 project (or the agent could read its own database and, later, change its own code).
 
+**Writing** (`files.write`): risk is fixed per tool, so there are two tools.
+`file_create` (CONFIRMATION) only makes a new file in an existing folder;
+`file_overwrite` (HIGH_RISK: always asks, never grantable) only replaces an existing
+one and requires `expected_sha256` from `file_read`, so the model can only overwrite
+a file it has read, and nothing is written if the file changed after your "yes".
+Both show a **preview** in the prompt (the content, or a unified diff) instead of the
+raw args; the preview goes to the prompt only, never to the model or the audit log,
+and a declined call returns a short fixed message so no diff is saved in a session.
+Writes are atomic (temporary file in the same folder, then `os.link` for create,
+which fails if the name appeared meanwhile, or `os.replace` for overwrite). Every
+overwrite first copies the old version to `data/file-backups/` (outside the
+workspace, last 20 kept); no backup, no overwrite. Types Windows runs on
+double-click (`.exe .bat .cmd .ps1 .js .vbs .lnk .reg …`) are never written, and
+there is no delete, append or mkdir tool.
+
 ### Sessions and facts
 
 - **History window.** The model gets the system prompt plus about the last

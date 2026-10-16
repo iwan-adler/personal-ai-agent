@@ -1,4 +1,4 @@
-"""Read-only file tools, confined to WORKSPACE_DIR (see app/tools/workspace.py).
+"""Read-only file tools (file_list, file_read), confined to WORKSPACE_DIR (see app/tools/workspace.py).
 
 Risk choices:
 - file_list / file_read only read -> SAFE, permission files.read.
@@ -102,7 +102,7 @@ def _file_read(root: Path, args: FileReadInput) -> FileReadOutput:
     data = path.read_bytes()
     if b"\x00" in data[:BINARY_SNIFF_BYTES]:
         raise WorkspaceError("Binary file; only text files can be read.")
-    lines = data.decode("utf-8", errors="replace").removeprefix("﻿").splitlines()
+    lines = data.decode("utf-8", errors="replace").removeprefix("\ufeff").splitlines()
     start = min(args.start_line, len(lines) + 1)
     chunk = lines[start - 1 : start - 1 + args.line_count]
     return FileReadOutput(

@@ -56,9 +56,11 @@ flowchart LR
   | `fact_list` | SAFE | Saved facts, newest first, optionally one topic |
   | `fact_save` | CONFIRMATION | Remember a fact about you (up to 300 characters); you see the exact text first |
   | `file_list` | SAFE | List one folder inside `WORKSPACE_DIR` (only if it is set) |
-  | `file_read` | SAFE | Read a text file inside `WORKSPACE_DIR`, up to 400 lines at a time |
+  | `file_read` | SAFE | Read a text file inside `WORKSPACE_DIR`, up to 400 lines at a time, with its `sha256` |
+  | `file_create` | CONFIRMATION | Create a **new** text file in an existing folder of `WORKSPACE_DIR`; the prompt shows the content |
+  | `file_overwrite` | HIGH_RISK | Replace an **existing** file; the prompt shows a diff. Needs the `sha256` from `file_read`, so it only overwrites a file the agent has read and nobody has changed since. The old version is copied to `data/file-backups/` (last 20 kept) |
 
-  The file tools only reach the one folder you set as `WORKSPACE_DIR`. They can never see `.env`, keys (`*.pem`, `*.key`, `id_rsa*`), `.ssh` or `.git`, and they reject Windows path tricks (`..`, other drives, network paths, `file:stream`, `CON`/`NUL`, names ending in a dot, junctions or hard links leading outside). Anything they read counts as outside content: for the rest of that request, Level 4 grants are suspended and every write asks.
+  The file tools only reach the one folder you set as `WORKSPACE_DIR`. They can never see `.env`, keys (`*.pem`, `*.key`, `id_rsa*`), `.ssh` or `.git`, and they reject Windows path tricks (`..`, other drives, network paths, `file:stream`, `CON`/`NUL`, names ending in a dot, junctions or hard links leading outside). Anything they read counts as outside content: for the rest of that request, Level 4 grants are suspended and every write asks. The write tools never write types that Windows runs on double-click (`.exe`, `.bat`, `.cmd`, `.ps1`, `.js`, `.vbs`, `.lnk`, `.reg`, …), and there is no delete tool.
 
   No tool can delete anything. Facts and sessions are deleted only by your own `/forget-fact` and `/forget-session` commands.
 - **Persistent storage** in SQLite (`data/agent.db`): tasks, chat sessions and facts, with numbered schema migrations. Sessions store only what you typed and the agent's final replies, never tool calls or tool results, so an instruction planted in an old tool result can't come back later.
@@ -147,7 +149,7 @@ Commands (handled by the CLI, never sent to the model):
 
 Each launch starts a new session; it is saved from your first message on.
 
-> **Privacy:** your messages, the agent's replies and saved facts are stored **unencrypted** in `data/agent.db`. The file is gitignored, but anyone with access to your computer can read it. The audit log never contains them, only ids.
+> **Privacy:** your messages, the agent's replies and saved facts are stored **unencrypted** in `data/agent.db`, and backups of overwritten files in `data/file-backups/`. The file is gitignored, but anyone with access to your computer can read it. The audit log never contains them, only ids.
 
 ## Configuration
 

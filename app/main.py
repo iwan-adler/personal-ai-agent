@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import sys
+from pathlib import Path
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -21,6 +22,7 @@ from app.safety.permissions import DEFAULT_GRANTS, SafetyLayer
 from app.tools.base import ToolContext, ToolRegistry
 from app.tools.builtin import build_default_registry
 from app.tools.facts import register_fact_tools
+from app.tools.file_write import register_file_write_tools
 from app.tools.files import register_file_tools
 from app.tools.tasks import register_task_tools
 
@@ -172,13 +174,18 @@ def handle_command(line: str, state: ChatState, confirm: Callable[[str], bool] =
     return f"Unknown command {command}. Type /help."
 
 
-def build_registry(settings: Settings) -> ToolRegistry:
-    """Every tool this session offers. File tools only exist with a WORKSPACE_DIR."""
+def build_registry(settings: Settings, backup_dir: Path = DATA_DIR / "file-backups") -> ToolRegistry:
+    """Every tool this session offers. File tools only exist with a WORKSPACE_DIR.
+
+    Overwrite backups go to backup_dir, outside the workspace, so the model can
+    neither read nor change them.
+    """
     registry = build_default_registry()
     register_task_tools(registry)
     register_fact_tools(registry)
     if settings.workspace_dir is not None:
         register_file_tools(registry, settings.workspace_dir)
+        register_file_write_tools(registry, settings.workspace_dir, backup_dir)
     return registry
 
 

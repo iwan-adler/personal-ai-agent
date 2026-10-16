@@ -58,6 +58,7 @@ DEFAULT_GRANTS: frozenset[str] = frozenset(
         "facts.read",
         "facts.write",
         "files.read",
+        "files.write",
     }
 )
 

@@ -33,7 +33,10 @@ _RESERVED = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"} | {
     f"{prefix}{digit}" for prefix in ("COM", "LPT") for digit in "123456789¹²³"
 }
 _BLOCKED_EXACT = {".env", ".git", ".ssh"}
-_BLOCKED_PREFIXES = (".env.", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519")
+# Temporary files of the write tools; off-limits so a leftover from a crash is
+# neither listed nor readable nor writable by the model.
+TEMP_PREFIX = ".koda-tmp-"
+_BLOCKED_PREFIXES = (".env.", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", TEMP_PREFIX)
 _BLOCKED_SUFFIXES = (".pem", ".key")
 
 
