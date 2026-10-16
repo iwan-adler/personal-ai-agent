@@ -64,6 +64,14 @@ class GitHubClient:
     def get(self, repo: str, path: str = "", params: Mapping[str, Any] | None = None,
             *, timeout: float) -> Any:
         """GET /repos/<repo><path>. repo must already be validated "owner/name"."""
+        return self._request("GET", repo, path, params, None, timeout)
+
+    def post(self, repo: str, path: str, payload: Mapping[str, Any], *, timeout: float) -> Any:
+        """POST JSON to /repos/<repo><path>. Same host, redirect and token rules as get()."""
+        return self._request("POST", repo, path, None, payload, timeout)
+
+    def _request(self, method: str, repo: str, path: str, params: Mapping[str, Any] | None,
+                 payload: Mapping[str, Any] | None, timeout: float) -> Any:
         owner, name = repo.split("/")
         url = (
             f"{API_ROOT}/repos/{urllib.parse.quote(owner, safe='')}/{urllib.parse.quote(name, safe='')}"
@@ -71,15 +79,16 @@ class GitHubClient:
         )
         if params:
             url += "?" + urllib.parse.urlencode(params)
-        request = urllib.request.Request(
-            url,
-            method="GET",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": API_VERSION,
-                "User-Agent": "koda-personal-agent",
-            },
-        )
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": API_VERSION,
+            "User-Agent": "koda-personal-agent",
+        }
+        data = None
+        if payload is not None:
+            data = json.dumps(payload).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        request = urllib.request.Request(url, data=data, method=method, headers=headers)
         if self._token is not None:
             request.add_unredirected_header("Authorization", f"Bearer {self._token.get_secret_value()}")
         try:

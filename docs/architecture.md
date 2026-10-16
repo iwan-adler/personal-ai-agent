@@ -67,6 +67,16 @@ whatever host a redirect names. The optional `GITHUB_TOKEN` is a `SecretStr`, re
 from `os.environ` on load and redacted from every error. Issue text is capped and
 counts as outside content, so the taint rule applies.
 
+**Publishing** (`github_issue_comment`, `github_issue_create`; HIGH_RISK, `github.write`)
+cannot be taken back, and the main risk is exfiltration: injected text getting the
+model to post private facts or file content. So: only repos in `GITHUB_WRITE_REPOS`
+(a subset of `GITHUB_REPOS`), through a separate client with a separate
+`GITHUB_WRITE_TOKEN` that the read tools never use; text that looks like a secret,
+or contains the value of a configured key or token, is denied during the safety
+review; and the prompt shows the target with the issue's current title, the repo's
+visibility, every @mention and the full text, uncapped. A "no" sends nothing. The
+output is only the link and number, so it is not outside content.
+
 ### Sessions and facts
 
 - **History window.** The model gets the system prompt plus about the last

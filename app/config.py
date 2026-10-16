@@ -14,7 +14,15 @@ from enum import IntEnum
 from pathlib import Path
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field, SecretStr, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    SecretStr,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -58,31 +66,47 @@ class Settings(BaseModel):
     # The only repos the GitHub tools can reach ("owner/name", lowercase); empty
     # means no GitHub tools at all.
     github_repos: tuple[str, ...] = ()
+    # Least privilege for publishing: the repos the agent may write to (a subset
+    # of github_repos) and a separate token with write access, used only by the
+    # write tools. Empty means no write tools at all.
+    github_write_repos: tuple[str, ...] = ()
+    github_write_token: SecretStr | None = None
 
-    @field_validator("github_token", mode="before")
+    @field_validator("github_token", "github_write_token", mode="before")
     @classmethod
     def _empty_token_none(cls, value: object) -> object:
         if isinstance(value, str) and not value.strip():
             return None
         return value.strip() if isinstance(value, str) else value
 
-    @field_validator("github_repos", mode="before")
+    @field_validator("github_repos", "github_write_repos", mode="before")
     @classmethod
     def _split_repos(cls, value: object) -> object:
         if isinstance(value, str):
             return tuple(part.strip() for part in value.split(",") if part.strip())
         return value
 
-    @field_validator("github_repos")
+    @field_validator("github_repos", "github_write_repos")
     @classmethod
-    def _repos_ok(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+    def _repos_ok(cls, value: tuple[str, ...], info: ValidationInfo) -> tuple[str, ...]:
+        name = info.field_name.upper()
         repos = tuple(dict.fromkeys(repo.lower() for repo in value))  # dedupe, keep order
         if len(repos) > MAX_GITHUB_REPOS:
-            raise ValueError(f"GITHUB_REPOS may list at most {MAX_GITHUB_REPOS} repositories")
+            raise ValueError(f"{name} may list at most {MAX_GITHUB_REPOS} repositories")
         for repo in repos:
             if not _GITHUB_REPO.fullmatch(repo):
-                raise ValueError("GITHUB_REPOS entries must look like owner/name")
+                raise ValueError(f"{name} entries must look like owner/name")
         return repos
+
+    @model_validator(mode="after")
+    def _write_access_ok(self) -> Settings:
+        if not self.github_write_repos:
+            return self
+        if not set(self.github_write_repos) <= set(self.github_repos):
+            raise ValueError("GITHUB_WRITE_REPOS may only list repos that are also in GITHUB_REPOS")
+        if self.github_write_token is None:
+            raise ValueError("GITHUB_WRITE_TOKEN is required when GITHUB_WRITE_REPOS is set")
+        return self
 
     @field_validator("workspace_dir", mode="before")
     @classmethod
@@ -200,6 +224,8 @@ def load_settings(env_file: Path | None = None) -> Settings:
             # pop for the same reason as OPENAI_API_KEY above.
             github_token=os.environ.pop("GITHUB_TOKEN", ""),
             github_repos=os.getenv("GITHUB_REPOS", ""),
+            github_write_repos=os.getenv("GITHUB_WRITE_REPOS", ""),
+            github_write_token=os.environ.pop("GITHUB_WRITE_TOKEN", ""),
         )
     except ValidationError as exc:
         raise ConfigError(_format_settings_error(exc)) from exc

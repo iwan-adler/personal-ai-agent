@@ -26,6 +26,7 @@ from app.tools.file_write import register_file_write_tools
 from app.tools.files import register_file_tools
 from app.tools.github import register_github_tools
 from app.tools.github_client import GitHubClient
+from app.tools.github_write import register_github_write_tools
 from app.tools.tasks import register_task_tools
 
 # Local, gitignored agent data (see .gitignore: data/*.db, data/*.jsonl).
@@ -178,7 +179,7 @@ def handle_command(line: str, state: ChatState, confirm: Callable[[str], bool] =
 
 def build_registry(settings: Settings, backup_dir: Path = DATA_DIR / "file-backups") -> ToolRegistry:
     """Every tool this session offers. File tools only exist with a WORKSPACE_DIR,
-    GitHub tools only with GITHUB_REPOS.
+    GitHub tools only with GITHUB_REPOS, write tools only with GITHUB_WRITE_REPOS.
 
     Overwrite backups go to backup_dir, outside the workspace, so the model can
     neither read nor change them.
@@ -191,6 +192,14 @@ def build_registry(settings: Settings, backup_dir: Path = DATA_DIR / "file-backu
         register_file_write_tools(registry, settings.workspace_dir, backup_dir)
     if settings.github_repos:
         register_github_tools(registry, settings.github_repos, GitHubClient(settings.github_token))
+    if settings.github_write_repos:
+        # A separate client: the write token is used for publishing only.
+        register_github_write_tools(
+            registry,
+            settings.github_write_repos,
+            GitHubClient(settings.github_write_token),
+            known_secrets=(settings.openai_api_key, settings.github_token, settings.github_write_token),
+        )
     return registry
 
 

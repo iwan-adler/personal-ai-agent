@@ -62,6 +62,10 @@ flowchart LR
   | `github_issue_list` | SAFE | Issues and PRs of a repo in `GITHUB_REPOS`, most recently updated first |
   | `github_issue_read` | SAFE | One issue or PR with its comments (text capped) |
   | `github_pr_list` | SAFE | Pull requests of a repo in `GITHUB_REPOS`, with branches and draft status |
+  | `github_issue_comment` | HIGH_RISK | **Publish** a comment on an issue or PR in `GITHUB_WRITE_REPOS` |
+  | `github_issue_create` | HIGH_RISK | **Publish** a new issue in `GITHUB_WRITE_REPOS` |
+
+  Publishing always asks. The prompt shows the target (with the issue's current title), whether the repo is public, every @mention (they notify people) and the full text exactly as it will be posted. Text that looks like a secret (`sk-…`, `github_pat_…`, `ghp_…`, AWS keys, private keys) or contains one of your configured keys is refused before you are even asked.
 
   The file tools only reach the one folder you set as `WORKSPACE_DIR`. They can never see `.env`, keys (`*.pem`, `*.key`, `id_rsa*`), `.ssh` or `.git`, and they reject Windows path tricks (`..`, other drives, network paths, `file:stream`, `CON`/`NUL`, names ending in a dot, junctions or hard links leading outside). Anything they read counts as outside content: for the rest of that request, Level 4 grants are suspended and every write asks. The write tools never write types that Windows runs on double-click (`.exe`, `.bat`, `.cmd`, `.ps1`, `.js`, `.vbs`, `.lnk`, `.reg`, …), and there is no delete tool.
 
@@ -169,6 +173,8 @@ All settings live in `.env` ([`.env.example`](.env.example) documents each one).
 | `WORKSPACE_DIR` | *(empty)* | Absolute path of the only folder the file tools may read, e.g. `C:\Users\you\Documents\koda-workspace`. Empty means no file tools. Not allowed: a drive root, your home folder itself, or a folder containing this project |
 | `GITHUB_REPOS` | *(empty)* | Comma-separated `owner/name` repos the GitHub tools may read (max 20). Empty means no GitHub tools |
 | `GITHUB_TOKEN` | *(empty)* | Optional. Without it, public repos work at 60 requests/hour. Recommended: a **fine-grained** token limited to those repos, with read-only *Metadata*, *Issues* and *Pull requests*. Removed from the environment once loaded, like the OpenAI key |
+| `GITHUB_WRITE_REPOS` | *(empty)* | Repos the agent may **publish** to; each must also be in `GITHUB_REPOS`. Empty means no write tools |
+| `GITHUB_WRITE_TOKEN` | *(empty)* | Required with `GITHUB_WRITE_REPOS`: a **separate** fine-grained token limited to those repos, with *Issues: Read and write*. Used only by the write tools |
 | `OPENAI_API_STYLE` | `chat` | `chat` (most compatible) or `responses` |
 | `LOG_LEVEL` | `INFO` | Structured JSON logs go to stderr |
 
@@ -197,7 +203,7 @@ tail -n 20 data/audit.jsonl               # macOS / Linux
 python -m pytest
 ```
 
-There are 295 tests (counting parametrised cases), which run in a few seconds with **no network and no API cost**. A `FakeLLMClient` replays scripted model replies. The tests cover:
+There are 507 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
 
 - the agent loop: repair of malformed output, budgets, repeated-failure and repeated-call stops, the history window, and tool output that tries to break out of its `<tool_result>` block
 - the safety layer: every autonomy level, missing permissions, `HIGH_RISK` always confirming, Level 4 grants, duplicate writes
@@ -206,6 +212,9 @@ There are 295 tests (counting parametrised cases), which run in a few seconds wi
 - config validation, and tool timeouts with a deliberately hanging tool
 - the task workflow end to end: request → confirmation → SQLite → audit, including declined confirmations, invalid dates, missing permissions, persistence across sessions, and audit-write failures (the tool must not run)
 - sessions and facts: tool results never saved, FTS5 syntax in search queries treated as plain text, saving facts always asks, deleting only by command, schema migrations keeping old data
+- files: Windows path tricks (`..`, drives, UNC, `file:stream`, `CON`, trailing dots, junctions, hard links) refused, overwrites only with the right checksum, backups, nothing half-written
+- GitHub: only allowlisted repos, redirects refused (tested with real local servers), tokens never leaking, secrets refused before any publish prompt, the full text shown before publishing
+- outside content: after reading a file or an issue, Level 4 grants are suspended, so injected text cannot drive a write
 
 ## Project structure
 
