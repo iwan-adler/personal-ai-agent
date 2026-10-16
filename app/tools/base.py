@@ -78,6 +78,10 @@ class Tool:
     # web pages, GitHub issues), which may carry injected instructions. Once one
     # runs, the safety layer suspends Level 4 grants for the rest of the request.
     reads_outside_content: bool = False
+    # Optional: describes what this call would do (e.g. a diff), shown in the
+    # confirmation prompt instead of the raw args. Read-only; shown to the user
+    # only, never sent to the model or written to the audit log.
+    preview: Callable[[ToolContext, BaseModel], str] | None = None
 
     def __post_init__(self) -> None:
         # "not > 0" also rejects NaN, which would make join() wait forever.

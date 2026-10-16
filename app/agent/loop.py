@@ -24,6 +24,7 @@ from app.llm.client import Completer, CompletionResult
 from app.safety.permissions import SafetyLayer
 from app.tools.base import (
     RiskLevel,
+    Tool,
     ToolContext,
     ToolRegistry,
     ToolTimeout,
@@ -468,6 +469,16 @@ class AgentLoop:
                 run.final_text = observation
                 return run
 
+    def _preview(self, tool: Tool | None, parsed_args: Any) -> str | None:
+        """What the tool would do, for the confirmation prompt only (never audited,
+        never sent to the model). None if the tool has no preview."""
+        if tool is None or tool.preview is None or parsed_args is None:
+            return None
+        try:
+            return tool.preview(self.tool_ctx, parsed_args)
+        except Exception as exc:  # noqa: BLE001 — the tool's own checks still run on execution
+            return f"(preview unavailable: {type(exc).__name__})"
+
     def _think(self, conv: Conversation) -> CompletionResult:
         # Only a window goes to the model: the full history would grow every
         # request's cost without bound and keep old tool output in context.
@@ -511,14 +522,13 @@ class AgentLoop:
 
         if reviewed.decision == "confirm":
             offer = reviewed.grant_offer
+            preview = self._preview(tool, reviewed.parsed_args)
+            what = f"\n{preview}\n" if preview is not None else f" with args {decision.args}"
             if offer is None:
-                prompt = (
-                    f"Allow tool '{tool_name}' ({risk}) with args {decision.args}? "
-                    f"{reviewed.reason}"
-                )
+                prompt = f"Allow tool '{tool_name}' ({risk}){what}? {reviewed.reason}"
             else:
                 prompt = (
-                    f"Allow tool '{tool_name}' ({risk}) with args {decision.args}, and let "
+                    f"Allow tool '{tool_name}' ({risk}){what}, and let "
                     f"'{tool_name}' run without asking for the rest of this request "
                     f"(max {offer.max_uses} uses)? {reviewed.reason}"
                 )
@@ -533,7 +543,11 @@ class AgentLoop:
                 grant_offered=offer is not None,
             )
             if not approved:
-                return f"Confirmation required: {prompt}", "blocked_confirm", tool_name, risk, None
+                # Short and fixed on purpose: this text reaches the model and is saved
+                # as the run's final reply, so it must not carry the args or a preview
+                # (a diff holds old file content, i.e. outside content).
+                message = f"Not approved: tool '{tool_name}' ({risk}). {reviewed.reason}"
+                return message, "blocked_confirm", tool_name, risk, None
             if not recorded:
                 return "Audit log unavailable; tool not run.", "error", tool_name, risk, "AuditUnavailable"
             if offer is not None:

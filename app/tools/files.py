@@ -10,6 +10,7 @@ Risk choices:
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Literal
 
@@ -65,6 +66,9 @@ class FileReadOutput(BaseModel):
     start_line: int
     end_line: int
     total_lines: int
+    # Fingerprint of the whole file; file_overwrite requires it, so the model can
+    # only overwrite a file it has read, and only if it has not changed since.
+    sha256: str
     text: str
 
 
@@ -106,6 +110,7 @@ def _file_read(root: Path, args: FileReadInput) -> FileReadOutput:
         start_line=start,
         end_line=start + len(chunk) - 1,
         total_lines=len(lines),
+        sha256=hashlib.sha256(data).hexdigest(),
         text="\n".join(chunk),
     )
 
