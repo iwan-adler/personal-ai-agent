@@ -24,6 +24,8 @@ from app.tools.builtin import build_default_registry
 from app.tools.facts import register_fact_tools
 from app.tools.file_write import register_file_write_tools
 from app.tools.files import register_file_tools
+from app.tools.github import register_github_tools
+from app.tools.github_client import GitHubClient
 from app.tools.tasks import register_task_tools
 
 # Local, gitignored agent data (see .gitignore: data/*.db, data/*.jsonl).
@@ -175,7 +177,8 @@ def handle_command(line: str, state: ChatState, confirm: Callable[[str], bool] =
 
 
 def build_registry(settings: Settings, backup_dir: Path = DATA_DIR / "file-backups") -> ToolRegistry:
-    """Every tool this session offers. File tools only exist with a WORKSPACE_DIR.
+    """Every tool this session offers. File tools only exist with a WORKSPACE_DIR,
+    GitHub tools only with GITHUB_REPOS.
 
     Overwrite backups go to backup_dir, outside the workspace, so the model can
     neither read nor change them.
@@ -186,6 +189,8 @@ def build_registry(settings: Settings, backup_dir: Path = DATA_DIR / "file-backu
     if settings.workspace_dir is not None:
         register_file_tools(registry, settings.workspace_dir)
         register_file_write_tools(registry, settings.workspace_dir, backup_dir)
+    if settings.github_repos:
+        register_github_tools(registry, settings.github_repos, GitHubClient(settings.github_token))
     return registry
 
 

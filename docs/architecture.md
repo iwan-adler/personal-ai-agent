@@ -53,6 +53,20 @@ workspace, last 20 kept); no backup, no overwrite. Types Windows runs on
 double-click (`.exe .bat .cmd .ps1 .js .vbs .lnk .reg …`) are never written, and
 there is no delete, append or mkdir tool.
 
+### GitHub (read-only, V0.5)
+
+`github_issue_list`, `github_issue_read` and `github_pr_list` (SAFE, `github.read`,
+`reads_outside_content`) exist only when `GITHUB_REPOS` is set. The allowed repos
+are a fixed set of choices (`Literal`) in each input schema, so any other repo is
+denied during the safety review, before a request is made. The client
+(`app/tools/github_client.py`) uses the standard library with two rules: the host is
+fixed to `https://api.github.com` and paths are built only from validated parts (no
+SSRF, no path injection), and **redirects are refused**, with the token sent as an
+unredirected header, because `urllib` would otherwise forward `Authorization` to
+whatever host a redirect names. The optional `GITHUB_TOKEN` is a `SecretStr`, removed
+from `os.environ` on load and redacted from every error. Issue text is capped and
+counts as outside content, so the taint rule applies.
+
 ### Sessions and facts
 
 - **History window.** The model gets the system prompt plus about the last

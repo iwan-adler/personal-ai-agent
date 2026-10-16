@@ -57,6 +57,8 @@ def env_file(monkeypatch, tmp_path):
         "LLM_TIMEOUT_SECONDS",
         "MAX_HISTORY_MESSAGES",
         "WORKSPACE_DIR",
+        "GITHUB_REPOS",
+        "GITHUB_TOKEN",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")

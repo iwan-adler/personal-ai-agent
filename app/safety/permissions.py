@@ -59,6 +59,7 @@ DEFAULT_GRANTS: frozenset[str] = frozenset(
         "facts.write",
         "files.read",
         "files.write",
+        "github.read",
     }
 )
 

@@ -9,6 +9,7 @@ Why a Settings object instead of calling os.getenv everywhere:
 from __future__ import annotations
 
 import os
+import re
 from enum import IntEnum
 from pathlib import Path
 
@@ -17,6 +18,11 @@ from pydantic import BaseModel, Field, SecretStr, ValidationError, field_validat
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+MAX_GITHUB_REPOS = 20
+# GitHub owners: letters, digits, hyphens (max 39). Repo names: letters, digits,
+# ".", "_", "-" (max 100), but not "." or "..". Checked on the lowercased value.
+_GITHUB_REPO = re.compile(r"[a-z0-9][a-z0-9-]{0,38}/(?!\.\.?$)[a-z0-9._-]{1,100}")
 
 
 class ConfigError(ValueError):
@@ -47,6 +53,36 @@ class Settings(BaseModel):
     max_history_messages: int = Field(default=20, ge=4, le=200)
     # The only folder the file tools can reach; None means no file tools at all.
     workspace_dir: Path | None = None
+    # Optional; like the OpenAI key a SecretStr, removed from os.environ on load.
+    github_token: SecretStr | None = None
+    # The only repos the GitHub tools can reach ("owner/name", lowercase); empty
+    # means no GitHub tools at all.
+    github_repos: tuple[str, ...] = ()
+
+    @field_validator("github_token", mode="before")
+    @classmethod
+    def _empty_token_none(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("github_repos", mode="before")
+    @classmethod
+    def _split_repos(cls, value: object) -> object:
+        if isinstance(value, str):
+            return tuple(part.strip() for part in value.split(",") if part.strip())
+        return value
+
+    @field_validator("github_repos")
+    @classmethod
+    def _repos_ok(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        repos = tuple(dict.fromkeys(repo.lower() for repo in value))  # dedupe, keep order
+        if len(repos) > MAX_GITHUB_REPOS:
+            raise ValueError(f"GITHUB_REPOS may list at most {MAX_GITHUB_REPOS} repositories")
+        for repo in repos:
+            if not _GITHUB_REPO.fullmatch(repo):
+                raise ValueError("GITHUB_REPOS entries must look like owner/name")
+        return repos
 
     @field_validator("workspace_dir", mode="before")
     @classmethod
@@ -161,6 +197,9 @@ def load_settings(env_file: Path | None = None) -> Settings:
             llm_timeout_seconds=_int_env("LLM_TIMEOUT_SECONDS", 60),
             max_history_messages=_int_env("MAX_HISTORY_MESSAGES", 20),
             workspace_dir=os.getenv("WORKSPACE_DIR"),
+            # pop for the same reason as OPENAI_API_KEY above.
+            github_token=os.environ.pop("GITHUB_TOKEN", ""),
+            github_repos=os.getenv("GITHUB_REPOS", ""),
         )
     except ValidationError as exc:
         raise ConfigError(_format_settings_error(exc)) from exc
