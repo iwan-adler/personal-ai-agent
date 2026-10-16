@@ -210,7 +210,7 @@ tail -n 20 data/audit.jsonl               # macOS / Linux
 python -m pytest
 ```
 
-There are 507 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
+There are 541 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
 
 - the agent loop: repair of malformed output, budgets, repeated-failure and repeated-call stops, the history window, and tool output that tries to break out of its `<tool_result>` block
 - the safety layer: every autonomy level, missing permissions, `HIGH_RISK` always confirming, Level 4 grants, duplicate writes
@@ -222,6 +222,7 @@ There are 507 tests (counting parametrised cases), which run in under a minute w
 - files: Windows path tricks (`..`, drives, UNC, `file:stream`, `CON`, trailing dots, junctions, hard links) refused, overwrites only with the right checksum, backups, nothing half-written
 - GitHub: only allowlisted repos, redirects refused (tested with real local servers), tokens never leaking, secrets refused before any publish prompt, the full text shown before publishing
 - outside content: after reading a file or an issue, Level 4 grants are suspended, so injected text cannot drive a write
+- documents: PDFs (built inside the tests) parsed only in an isolated child process, a hanging parser killed, encrypted and broken PDFs refused, citations with page and line numbers, junctions and hard links in `library/` ignored
 
 ## Project structure
 
