@@ -48,8 +48,28 @@ def test_again_restarts_and_is_due_today():
     assert s.ease == pytest.approx(1.96)
 
 
-def test_hard_lowers_the_ease():
-    assert next_schedule(NEW, 2, TODAY).ease == pytest.approx(2.36)
+def test_hard_follows_anki_and_grows_the_interval_only_a_little():
+    """Pure SM-2 would turn 38 days into 99 after a *hard* answer; Anki gives x 1.2."""
+    mature = Schedule(ease=2.6, interval_days=38, repetitions=4, due_date=TODAY)
+    s = next_schedule(mature, 2, TODAY)
+    assert (s.interval_days, s.repetitions, s.due_date) == (46, 5, TODAY + timedelta(days=46))
+    assert s.ease == pytest.approx(2.45)
+
+
+def test_hard_always_adds_at_least_a_day():
+    s = next_schedule(Schedule(ease=2.5, interval_days=1, repetitions=1, due_date=TODAY), 2, TODAY)
+    assert s.interval_days == 2  # 1 x 1.2 rounds to 1, so the "+1 day" minimum applies
+
+
+def test_hard_on_a_new_card_is_one_day():
+    s = next_schedule(NEW, 2, TODAY)
+    assert (s.interval_days, s.repetitions) == (1, 1)
+    assert s.ease == pytest.approx(2.35)
+
+
+def test_hard_never_pushes_the_ease_below_the_minimum():
+    s = Schedule(ease=1.35, interval_days=10, repetitions=3, due_date=TODAY)
+    assert next_schedule(s, 2, TODAY).ease == 1.3
 
 
 def test_ease_never_falls_below_1_3():

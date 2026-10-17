@@ -3,6 +3,12 @@
 Koda is built in milestones, each gated on the previous one. Design decisions D1–D7
 and their reasons are in [docs/architecture.md](docs/architecture.md).
 
+## 1.0.1 (2026-10-17)
+
+- Flashcards: **hard** now follows Anki. Pure SM-2 still multiplied the interval by the
+  ease after a hard answer (e.g. 38 days -> 99); now it grows by x 1.2, at least one day
+  (a new card: 1 day), and the ease drops by 0.15. Again, good and easy are unchanged.
+
 ## 1.0.0 (2026-10-17)
 
 The roadmap's pieces working together, checked by an end-to-end "study week" test

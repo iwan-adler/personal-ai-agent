@@ -175,7 +175,7 @@ Commands (handled by the CLI, never sent to the model):
 | `/opportunities [status]` | Opportunities from your feeds: `new` (default), `saved`, `dismissed` or `all` |
 | `/dismiss <id>` | Hide an opportunity (asks first); only you can dismiss, not the model |
 | `/plan [days]` | Your study plan for the next days (default 7, at most 28) |
-| `/quiz [course] [n]` | Study due flashcards: Enter shows the answer, then grade 1 again, 2 hard, 3 good, 4 easy (`q` stops; every grade is saved at once). Runs without the model |
+| `/quiz [course] [n]` | Study due flashcards: Enter shows the answer, then grade 1 again, 2 hard (comes back a little later, like Anki), 3 good, 4 easy (`q` stops; every grade is saved at once). Runs without the model |
 | `/cards [course]` | List your flashcards with their due dates |
 | `/forget-card <id>` | Delete a flashcard and its review history (asks first) |
 | `/courses` | List your courses with counts and the next deadline |
@@ -276,7 +276,7 @@ tail -n 20 data/audit.jsonl               # macOS / Linux
 python -m pytest
 ```
 
-There are 767 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
+There are 770 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
 
 - the agent loop: repair of malformed output, budgets, repeated-failure and repeated-call stops, the history window, and tool output that tries to break out of its `<tool_result>` block
 - the safety layer: every autonomy level, missing permissions, `HIGH_RISK` always confirming, Level 4 grants, duplicate writes
@@ -296,7 +296,7 @@ There are 767 tests (counting parametrised cases), which run in under a minute w
 - GitHub: only allowlisted repos, redirects refused (tested with real local servers), tokens never leaking, secrets refused before any publish prompt, the full text shown before publishing
 - outside content: after reading a file or an issue, Level 4 grants are suspended, so injected text cannot drive a write
 - the planner: earliest deadline first with fixed dates, work stopping the day before a deadline, flashcard time reserved first, exact shortfalls in quarter hours, overdue and due-today warnings
-- flashcards: SM-2 intervals and ease, batches shown in full before saving, card text never sent back to the model, `/quiz` with scripted key presses (again comes back once, stopping keeps progress)
+- flashcards: SM-2 intervals and ease, Anki-style "hard" (x 1.2, at least a day), batches shown in full before saving, card text never sent back to the model, `/quiz` with scripted key presses (again comes back once, stopping keeps progress)
 - courses: upgrading a database with existing tasks, facts and documents, case-insensitive unique codes, linking and filtering, deleting a course without losing what was linked to it
 - documents: PDFs (built inside the tests) parsed only in an isolated child process, a hanging parser killed, encrypted and broken PDFs refused, citations with page and line numbers, junctions and hard links in `library/` ignored
 

@@ -4,8 +4,8 @@ Cards are created only through the card_propose tool, after the user saw and
 approved every card. Studying (/quiz) happens in the CLI without the model, so
 card text never goes back into the model's context.
 
-Grades are Anki-style buttons mapped to SM-2 quality:
-    1 again -> 1, 2 hard -> 3, 3 good -> 4, 4 easy -> 5.
+Grades are Anki-style buttons. Again, good and easy are SM-2 with quality
+1, 4 and 5; hard follows Anki (interval x 1.2, ease - 0.15), see next_schedule.
 """
 
 from __future__ import annotations
@@ -19,6 +19,9 @@ from app.memory.db import Database
 GRADE_TO_QUALITY = {1: 1, 2: 3, 3: 4, 4: 5}
 GRADE_NAMES = {1: "again", 2: "hard", 3: "good", 4: "easy"}
 MIN_EASE = 1.3
+# Anki's "hard": the interval grows by 20 %, the ease drops by 0.15.
+HARD_FACTOR = 1.2
+HARD_EASE_PENALTY = 0.15
 
 
 class CardNotFound(LookupError):
@@ -38,9 +41,22 @@ def next_schedule(current: Schedule, grade: int, today: date) -> Schedule:
 
     A failed answer (quality < 3, i.e. "again") restarts the card and makes it
     due today; the first two successes give 1 and 6 days.
+
+    "hard" follows Anki instead: in pure SM-2 it still multiplies the interval by
+    the ease (38 days -> 99), which is not what a hard answer should mean. Here
+    the interval grows by HARD_FACTOR, at least one day (a new card: 1 day), and
+    the ease drops by HARD_EASE_PENALTY.
     """
     if grade not in GRADE_TO_QUALITY:
         raise ValueError("grade must be 1 (again), 2 (hard), 3 (good) or 4 (easy)")
+    if grade == 2:
+        if current.repetitions == 0:
+            interval = 1
+        else:
+            interval = max(current.interval_days + 1, round(current.interval_days * HARD_FACTOR))
+        ease = max(MIN_EASE, current.ease - HARD_EASE_PENALTY)
+        return Schedule(ease=round(ease, 4), interval_days=interval, repetitions=current.repetitions + 1,
+                        due_date=today + timedelta(days=interval))
     quality = GRADE_TO_QUALITY[grade]
     if quality < 3:
         repetitions, interval = 0, 0

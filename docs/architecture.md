@@ -192,12 +192,13 @@ exact duplicate question in the same course is skipped. `card_stats` (SAFE,
 `cards.read`) returns counts only: card text usually comes from documents (outside
 content) and never goes back into the model's context. Studying is the CLI's
 `/quiz`, which runs **without the model**, so it is free, fast and offline. Grades are
-four buttons mapped to SM-2 quality (again 1, hard 3, good 4, easy 5): the interval
-grows with the previous ease (1 day, 6 days, then interval x ease), "again" restarts
-the card and shows it once more at the end of the session, and the ease never falls
-below 1.3. In pure SM-2, "hard" still lengthens the interval; it only lowers the ease,
-so later intervals grow more slowly. Every grade is saved at once (migration 6:
-`cards`, plus a `reviews` log).
+four buttons. Again, good and easy are SM-2 (quality 1, 4, 5): the interval grows
+with the previous ease (1 day, 6 days, then interval x ease), "again" restarts the
+card and shows it once more at the end of the session, and the ease never falls
+below 1.3. **Hard follows Anki** (since 1.0.1): pure SM-2 would still multiply the
+interval by the ease (38 days -> 99 after a hard answer), so hard instead grows it
+by x 1.2, at least one day (a new card: 1 day), and lowers the ease by 0.15. Every
+grade is saved at once (migration 6: `cards`, plus a `reviews` log).
 
 ### Document library (V0.6, implements D4)
 
