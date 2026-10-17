@@ -85,6 +85,16 @@ that pass the same URL check are returned. For feeds, `parse_xml_safely` refuses
 any DOCTYPE or ENTITY declaration and non-ASCII-compatible encodings before the
 standard parser (expat 2.8, which itself refuses entity expansion) sees them.
 
+### Health check (V0.9, monitoring)
+
+`python -m app.doctor` (`app/doctor.py`) runs read-only checks: settings load
+(errors shown without values), the database opened read-only (`mode=ro`, so no
+migration runs) with `integrity_check`, `foreign_key_check` and the schema version,
+the audit log (damaged lines counted), free disk space, `.env` ignored and untracked
+(asked of git through `run_command`, never reading the file), and installed versions
+against `requirements.txt` (supply-chain drift). Output is plain ASCII so it works
+when redirected on Windows. No network, no provider calls.
+
 ### Web interface (V0.8, implements D5)
 
 `python -m app.web_ui` serves FastAPI with server-rendered HTMX on **127.0.0.1

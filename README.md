@@ -194,6 +194,14 @@ python -m app.web_ui
 
 Prints a one-time link such as `http://127.0.0.1:8765/?token=…`. Opening it signs you in (the token moves into an HttpOnly, SameSite=Strict cookie and leaves the address bar). The page offers the same agent as the CLI: when a tool needs your approval, a card shows exactly what the terminal would ask, with **Approve** and **Decline**; the run continues where it paused. A read-only **Dashboard** shows this week's plan with its warnings, open tasks, courses, flashcards due and new opportunities. Keep the link private: anyone with it can use the agent while the server runs. The server only listens on `127.0.0.1`, refuses requests for other host names, other sites' form posts and pages without the token, and renders every model and tool text escaped under a strict Content-Security-Policy.
 
+### Health check
+
+```bash
+python -m app.doctor
+```
+
+Read-only checks with `[ok]`, `[warn]` or `[FAIL]` (exit code 1 on any failure): settings load, database integrity and schema version, audit log readable, free disk space, `.env` ignored and untracked by git (its contents are never read), and installed package versions matching `requirements.txt`. It never contacts the network or the model provider and never changes the database.
+
 ### Sources and citations
 
 Answers based on your documents or a fetched page cite them in square brackets, e.g. `[dbms/lecture3.pdf, p. 12]` or `[https://en.wikipedia.org/wiki/Join]`. After every answer, Python compares each citation with the sources the agent **actually read in that request**. Anything else is flagged at the end of the answer:
@@ -252,7 +260,7 @@ tail -n 20 data/audit.jsonl               # macOS / Linux
 python -m pytest
 ```
 
-There are 737 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
+There are 750 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
 
 - the agent loop: repair of malformed output, budgets, repeated-failure and repeated-call stops, the history window, and tool output that tries to break out of its `<tool_result>` block
 - the safety layer: every autonomy level, missing permissions, `HIGH_RISK` always confirming, Level 4 grants, duplicate writes
