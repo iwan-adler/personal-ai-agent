@@ -133,7 +133,7 @@ button.approve:hover { background: var(--ok); filter: brightness(1.1); }
   .brand { padding: 0; }
   .brand span { display: none; }
   .sidebar nav { flex-direction: row; }
-  .sidebar-foot, .new-chat { display: none; }
+  .sidebar-foot, .new-chat, .chat-list, .back-link { display: none; }
   .dash-page .content { padding: 16px; }
 }
 
