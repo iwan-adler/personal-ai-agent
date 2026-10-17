@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Literal
 
 from app.memory.db import Database
+from app.planner import WEEKDAYS, parse_study_hours
 
 Difficulty = Literal["beginner", "intermediate", "advanced"]
 Mode = Literal["learn", "revise", "practice", "quiz"]
@@ -195,6 +196,9 @@ class StudyStore:
         return StudySession(**dict(row))
 
 
+STUDY_HOURS_KEY = "study_hours"
+
+
 class Preferences:
     """Small key-value settings chosen in the app (e.g. your name), not secrets."""
 
@@ -216,3 +220,24 @@ class Preferences:
                     " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                     (key, value),
                 )
+
+    def study_hours(self) -> tuple[float, ...] | None:
+        """Hours per weekday (Monday first) set in the app, or None if not set.
+
+        Stored in the same text form as STUDY_HOURS and parsed with the same
+        rules, so a bad stored value is ignored rather than trusted."""
+        raw = self.get(STUDY_HOURS_KEY)
+        if not raw:
+            return None
+        try:
+            return parse_study_hours(raw)
+        except ValueError:
+            return None
+
+    def set_study_hours(self, hours: tuple[float, ...] | None) -> None:
+        if hours is None:
+            self.set(STUDY_HOURS_KEY, None)
+            return
+        text = ",".join(f"{day}={value:g}" for day, value in zip(WEEKDAYS, hours, strict=True))
+        parse_study_hours(text)  # same limits as .env: 7 days, 0-16 h each
+        self.set(STUDY_HOURS_KEY, text)

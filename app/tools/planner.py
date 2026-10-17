@@ -51,7 +51,8 @@ def register_planner_tools(registry: ToolRegistry, study_hours: tuple[float, ...
     def handler(ctx: ToolContext, args: PlanWeekInput) -> PlanWeekOutput:
         if ctx.task_store is None:
             raise RuntimeError("Task storage is not configured for this session.")
-        plan = compute_plan(ctx.task_store, ctx.card_store, study_hours, args.days)
+        hours = ctx.study_hours() if ctx.study_hours is not None else study_hours
+        plan = compute_plan(ctx.task_store, ctx.card_store, hours, args.days)
         return PlanWeekOutput(plan=format_plan(plan), warnings=len(plan.warnings),
                               assumed_default_hours=plan.assumed_default_hours)
 

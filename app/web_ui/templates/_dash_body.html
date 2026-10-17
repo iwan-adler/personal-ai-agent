@@ -101,8 +101,26 @@
 
 <section class="card wide">
   <div class="card-head"><h2>Weekly study planner</h2><span class="hint">Planned from your deadlines and estimates</span></div>
+  <details class="hours-edit">
+    <summary>⏱ Study hours: <strong>{{ "%g"|format(hours_total) }} h per week</strong>
+      <span class="hint">({{ {"app": "set here", "env": "from .env", "default": "default 2 h a day"}[hours_source] }}) · Change</span></summary>
+    <form class="hours-form" hx-post="/prefs/study-hours" hx-target="#dash-body">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="hours-grid">
+        {% for day, value in hours %}
+          <label><span>{{ day|capitalize }}</span>
+            <input type="number" name="{{ day }}" value="{{ '%g'|format(value) }}" min="0" max="16" step="0.25" aria-label="Hours on {{ day }}">
+          </label>
+        {% endfor %}
+      </div>
+      <div class="hours-actions">
+        <button type="submit" class="primary">Save hours</button>
+        {% if hours_source == "app" %}<button type="submit" name="reset" value="1" formnovalidate>Reset to {{ ".env value" if env_hours else "default" }}</button>{% endif %}
+      </div>
+      <p class="hint small">How many hours you can study on each weekday. The planner fills them from your deadlines.</p>
+    </form>
+  </details>
   {% if plan %}
-    {% if plan.assumed_default_hours %}<p class="hint">No STUDY_HOURS set: assuming 2 h per day.</p>{% endif %}
     <div class="week">
     {% for day in plan.days %}
       <div class="day{% if day.date == today %} is-today{% endif %}">

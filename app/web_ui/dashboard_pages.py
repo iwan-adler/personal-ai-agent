@@ -18,9 +18,11 @@ from fastapi.responses import HTMLResponse, Response
 
 from app.main import ChatState
 from app.memory.tasks import TaskAlreadyDone, TaskNotFound
+from app.planner import WEEKDAYS
 from app.tools.planner import compute_plan
 
 PLAN_DAYS = 7
+DEFAULT_HOURS = 2.0  # what the planner assumes without any setting
 UPCOMING_DAYS = 14
 MAX_TITLE = 200
 MAX_NAME = 40
@@ -117,7 +119,7 @@ def dashboard_context(state: ChatState, today: date | None = None, now: datetime
         subjects.append({"code": subject, "name": "", "done": 0, "total": 0, "percent": 0, "cards_due": 0,
                          "cards": 0, "minutes": round(seconds / 60), "next_due": None})
 
-    plan = compute_plan(state.tasks, state.cards, state.study_hours, PLAN_DAYS) if state.tasks else None
+    plan = compute_plan(state.tasks, state.cards, state.current_study_hours(), PLAN_DAYS) if state.tasks else None
     return {
         "greeting": _greeting(now.hour),
         "user_name": state.prefs.get("name") if state.prefs else None,
@@ -133,6 +135,10 @@ def dashboard_context(state: ChatState, today: date | None = None, now: datetime
         "cards": cards,
         "opportunities": state.opportunities.list("new", 20) if state.opportunities else [],
         "recent_study": state.study.recent(3) if state.study else [],
+        "hours": list(zip(WEEKDAYS, state.current_study_hours() or (DEFAULT_HOURS,) * 7)),
+        "hours_source": state.study_hours_source(),
+        "env_hours": state.study_hours is not None,
+        "hours_total": sum(state.current_study_hours() or (DEFAULT_HOURS,) * 7),
     }
 
 
@@ -204,6 +210,29 @@ def add_dashboard_routes(app: FastAPI, *, state: ChatState, render: Callable[...
         audit(f"task_ui_{action}", task_id=task_id)
         return body(request, {"done": "Nice work! Task completed.", "reopen": "Task reopened.",
                               "delete": "Task deleted."}[action])
+
+    @app.post("/prefs/study-hours", response_class=HTMLResponse)
+    async def set_study_hours(request: Request):
+        form = await request.form()
+        if not csrf_ok(str(form.get("csrf", ""))):
+            return plain(403, "Missing or wrong CSRF value.")
+        if state.prefs is None:
+            return plain(400, "Settings are not available.")
+        if form.get("reset") == "1":
+            state.prefs.set_study_hours(None)
+            return body(request, "Study hours reset.")
+        hours = []
+        for day in WEEKDAYS:
+            raw = str(form.get(day, "")).strip() or "0"
+            try:
+                value = float(raw)
+            except ValueError:
+                return plain(400, f"{day.capitalize()}: enter a number of hours.")
+            if not 0 <= value <= 16 or value != value:
+                return plain(400, f"{day.capitalize()}: hours must be between 0 and 16.")
+            hours.append(round(value * 4) / 4)  # quarter hours, like the planner
+        state.prefs.set_study_hours(tuple(hours))
+        return body(request, "Study hours saved. The plan is updated.")
 
     @app.post("/prefs/name", response_class=HTMLResponse)
     def set_name(request: Request, name: str = Form(""), csrf: str = Form("")):

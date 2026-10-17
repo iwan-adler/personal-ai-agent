@@ -23,6 +23,9 @@ and their reasons are in [docs/architecture.md](docs/architecture.md).
   practice, quiz); a tutor without tools teaches in short steps, asks one question at a
   time and gives feedback. Python keeps the score (a verdict counts only for an answer to
   an open question) and the study time; sessions are saved (migration 9).
+- Study hours per weekday can be set on the dashboard. They override `STUDY_HOURS`
+  from `.env` (Reset returns to it) and apply at once to the dashboard, `/plan` and the
+  model's `plan_week` tool, which all read the same setting.
 - Flashcard practice in the window (`/cards`): the same SM-2 rules as `/quiz`, every
   grade saved at once, "again" shown once more at the end of the round, keyboard
   shortcuts, next interval on each button, practice per course. No model involved.

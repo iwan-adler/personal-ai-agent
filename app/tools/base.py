@@ -40,6 +40,9 @@ class ToolContext:
     card_store: CardStore | None = None
     # Opportunity scout cache; None means the scout tools report "not configured".
     opportunity_store: OpportunityStore | None = None
+    # Hours per weekday for the planner, read at call time so changes in the app
+    # apply at once; None means the value given at registration (STUDY_HOURS).
+    study_hours: Callable[[], tuple[float, ...] | None] | None = None
 
 
 TRUNCATION_MARKER = "…[truncated]"

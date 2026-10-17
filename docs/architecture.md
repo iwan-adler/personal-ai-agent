@@ -478,6 +478,10 @@ The web UI became the main way to use Koda, so it grew three parts:
   round state (tally, cards answered "again") travels in hidden form fields, checked
   as digit lists, so the server holds nothing between clicks; a tampered list can only
   change which of your own due cards is shown next.
+- **Study hours in the app**: stored in `preferences` in the same text form as
+  `STUDY_HOURS` and parsed with the same rules (a bad stored value is ignored, not
+  trusted). Order: app setting, then `.env`, then 2 h a day. The `plan_week` tool gets
+  a reader in `ToolContext`, so all three planners always agree.
 - **Dashboard edits tasks** (D5 update): create, edit, complete, reopen and delete.
   Alternative considered: keep the dashboard read-only and route every change through
   the chat. Rejected for tasks because these are the user's own clicks with the exact

@@ -427,3 +427,57 @@ def test_welcome_name_and_study_time(make_server):
     assert ", Ana 👋" in body
     assert _post(server, "/prefs/name", name="x" * 41)[0] == 400
     assert "<script>" not in _post(server, "/prefs/name", name="<script>x</script>")[2]
+
+
+# --- Study hours setting --------------------------------------------------------------------------------
+
+_WEEK = {"mon": "3", "tue": "3", "wed": "0", "thu": "1.5", "fri": "2", "sat": "4", "sun": "0"}
+
+
+def test_study_hours_set_in_the_app_drive_every_planner(make_server):
+    import json as _json
+
+    from app.main import handle_command
+
+    server = make_server()
+    page = server.request("GET", "/dashboard")[2]
+    assert "14 h per week" in page and "default 2 h a day" in page
+    status, headers, body = _post(server, "/prefs/study-hours", **_WEEK)
+    assert status == 200 and "13.5 h per week" in body and "set here" in body
+    assert _json.loads(headers["hx-trigger"])["toast"].startswith("Study hours saved")
+    assert server.state.current_study_hours() == (3, 3, 0, 1.5, 2, 4, 0)
+    # The model's plan tool and the CLI's /plan read the same setting.
+    assert server.agent.tool_ctx.study_hours() == (3, 3, 0, 1.5, 2, 4, 0)
+    assert "assum" not in handle_command("/plan", server.state, confirm=lambda p: False).lower()
+    status, _, body = _post(server, "/prefs/study-hours", reset="1")
+    assert status == 200 and "default 2 h a day" in body and server.state.current_study_hours() is None
+
+
+def test_app_study_hours_win_over_env(make_server):
+    server = make_server()
+    server.state.study_hours = (1, 1, 1, 1, 1, 1, 1)  # as if STUDY_HOURS were set in .env
+    assert "7 h per week" in server.request("GET", "/dashboard")[2]
+    _post(server, "/prefs/study-hours", **{**_WEEK})
+    assert server.state.current_study_hours()[0] == 3 and server.state.study_hours_source() == "app"
+    body = _post(server, "/prefs/study-hours", reset="1")[2]
+    assert "7 h per week" in body and "from .env" in body
+
+
+@pytest.mark.parametrize("bad", [{"mon": "17"}, {"tue": "-1"}, {"wed": "lots"}, {"thu": "nan"}, {"fri": "inf"}])
+def test_bad_study_hours_are_refused(make_server, bad):
+    server = make_server()
+    status, _, text = _post(server, "/prefs/study-hours", **{**_WEEK, **bad})
+    assert status == 400 and "hours" in text and server.state.prefs.study_hours() is None
+
+
+def test_study_hours_need_csrf(make_server):
+    server = make_server()
+    assert server.request("POST", "/prefs/study-hours", body={**_WEEK, "csrf": "wrong"})[0] == 403
+    assert server.state.prefs.study_hours() is None
+
+
+def test_a_broken_stored_value_is_ignored(make_server):
+    server = make_server()
+    server.state.prefs.set("study_hours", "mon=99")  # e.g. edited by hand in the database
+    assert server.state.current_study_hours() is None
+    assert server.request("GET", "/dashboard")[0] == 200

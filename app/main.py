@@ -98,6 +98,16 @@ class ChatState:
     # Created on the first saved turn, so launching and quitting leaves no empty session.
     session_id: int | None = None
 
+    def current_study_hours(self) -> tuple[float, ...] | None:
+        """Hours set in the app win over STUDY_HOURS from .env; None means the default."""
+        app_hours = self.prefs.study_hours() if self.prefs else None
+        return app_hours if app_hours is not None else self.study_hours
+
+    def study_hours_source(self) -> str:
+        if self.prefs and self.prefs.study_hours() is not None:
+            return "app"
+        return "env" if self.study_hours is not None else "default"
+
     def record(self, user_text: str, reply: str) -> None:
         if self.session_id is None:
             self.session_id = self.sessions.start()
@@ -311,7 +321,7 @@ def handle_command(line: str, state: ChatState, confirm: Callable[[str], bool] =
         if state.tasks is None:
             return "Tasks are not configured."
         days = int(arg) if arg is not None and arg.isdigit() else 7
-        return format_plan(compute_plan(state.tasks, state.cards, state.study_hours, max(1, min(days, 28))))
+        return format_plan(compute_plan(state.tasks, state.cards, state.current_study_hours(), max(1, min(days, 28))))
 
     if command == "/quiz":
         return _quiz(parts, state, ask)
@@ -468,6 +478,7 @@ def build_agent(
     courses = CourseStore(db)
     cards = CardStore(db)
     opportunities = OpportunityStore(db)
+    prefs = Preferences(db)
     audit = AuditLog(data_dir / "audit.jsonl")
     registry = build_registry(settings, backup_dir=data_dir / "file-backups")
     safety = SafetyLayer(
@@ -483,13 +494,14 @@ def build_agent(
         logger=logger,
         confirm=confirm,
         tool_ctx=ToolContext(task_store=task_store, fact_store=facts, doc_store=docs, course_store=courses,
-                             card_store=cards, opportunity_store=opportunities),
+                             card_store=cards, opportunity_store=opportunities,
+                             study_hours=lambda: prefs.study_hours() or settings.study_hours),
         audit=audit,
         defer_approvals=defer_approvals,
     )
     state = ChatState(sessions=sessions, audit=audit, facts=facts, docs=docs, courses=courses,
                       cards=cards, tasks=task_store, study_hours=settings.study_hours,
-                      opportunities=opportunities, study=StudyStore(db), prefs=Preferences(db))
+                      opportunities=opportunities, study=StudyStore(db), prefs=prefs)
     return agent, state
 
 

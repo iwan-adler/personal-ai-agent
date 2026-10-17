@@ -352,3 +352,16 @@ button kbd { background: rgba(255, 255, 255, .18); border-color: rgba(255, 255, 
 .grade:hover { background: var(--accent-soft); }
 .done-card h2 { margin: 4px 0 8px; }
 @media (max-width: 560px) { .grades { grid-template-columns: repeat(2, 1fr); } }
+
+/* Study hours setting */
+.hours-edit { margin: 0 0 12px; }
+.hours-edit summary { cursor: pointer; list-style: none; font-size: 14px; }
+.hours-edit summary::-webkit-details-marker { display: none; }
+.hours-edit summary:hover .hint { color: var(--accent); }
+.hours-form { margin-top: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+.hours-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+.hours-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.hours-grid input { width: 100%; background: var(--panel); text-align: center; }
+.hours-actions { display: flex; gap: 8px; margin-top: 10px; }
+.hours-form .hint { margin: 8px 0 0; }
+@media (max-width: 640px) { .hours-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
