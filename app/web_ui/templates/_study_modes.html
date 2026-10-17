@@ -1,0 +1,10 @@
+<div class="mode-tabs" id="mode-tabs"{% if oob %} hx-swap-oob="true"{% endif %}>
+  {% for m in modes %}
+    {% if m == s.mode %}
+      <button type="button" class="active" aria-pressed="true">{{ m|capitalize }}</button>
+    {% else %}
+      <button type="button" hx-post="/study/{{ s.id }}/turn" hx-vals='{"csrf": "{{ csrf }}", "action": "mode", "mode": "{{ m }}"}'
+              hx-target="#log" hx-swap="beforeend" data-echo="Switch to {{ m }} mode">{{ m|capitalize }}</button>
+    {% endif %}
+  {% endfor %}
+</div>

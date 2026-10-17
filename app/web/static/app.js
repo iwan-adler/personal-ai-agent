@@ -65,6 +65,7 @@
 
   function showPending(text) {
     var log = document.getElementById("log");
+    if (!log) return;
     var mine = el("div", "msg user pending-local", text);
     var row = el("div", "row assistant pending-local");
     row.appendChild(el("div", "avatar", "K"));
@@ -81,6 +82,7 @@
       label.textContent = s < 15 ? "Thinking… " + s + " s" : "Still thinking… " + s + " s (local models can be slow)";
     }, 1000);
     pending = { timer: timer, nodes: [mine, row] };
+    if (!text) mine.remove();
     hideWelcome();
     scrollDown();
   }
@@ -103,6 +105,15 @@
 
   document.addEventListener("htmx:beforeRequest", function (e) {
     var form = e.detail.elt;
+    if (form && form.getAttribute && form.getAttribute("data-echo") !== null) {
+      showPending(form.getAttribute("data-echo"));
+      return;
+    }
+    if (form && form.getAttribute && form.getAttribute("data-busy")) {
+      var submit = form.querySelector("button[type=submit]");
+      if (submit) { submit.setAttribute("data-label", submit.textContent); submit.textContent = form.getAttribute("data-busy"); }
+      return;
+    }
     if (form && form.id === "composer") {
       document.querySelectorAll("#log .followups").forEach(function (n) { n.remove(); });
       var box = document.getElementById("message");
@@ -116,6 +127,7 @@
 
   document.addEventListener("htmx:afterSettle", function () {
     if (document.querySelector("#log .msg")) hideWelcome();
+    applySizes();
     keepLastFollowups();
     addCopyButtons();
     scrollDown();
@@ -144,9 +156,25 @@
   });
 
   document.addEventListener("htmx:afterRequest", function (e) {
-    // "New chat" answers with HX-Refresh; nothing else to do here.
     if (e.detail.failed) clearPending();
+    var form = e.detail.elt;
+    if (e.detail.failed && form && form.querySelector) {
+      var submit = form.querySelector("button[type=submit][data-label]");
+      if (submit) submit.textContent = submit.getAttribute("data-label");
+    }
   });
+
+  // Score ring and bars: sizes come from data attributes (no inline styles under the CSP).
+  function applySizes() {
+    document.querySelectorAll("[data-fill]").forEach(function (bar) {
+      var value = Math.max(0, Math.min(100, parseInt(bar.getAttribute("data-fill"), 10) || 0));
+      bar.style.width = value + "%";
+    });
+    document.querySelectorAll("[data-percent]").forEach(function (ring) {
+      var value = Math.max(0, Math.min(100, parseInt(ring.getAttribute("data-percent"), 10) || 0));
+      ring.style.setProperty("--p", value);
+    });
+  }
 
   document.addEventListener("keydown", function (e) {
     if (e.target && e.target.id === "message" && e.key === "Enter" && !e.shiftKey && !e.isComposing) {
@@ -177,11 +205,7 @@
   });
 
   document.addEventListener("DOMContentLoaded", function () {
-    // Dashboard bars: widths come from data attributes (no inline styles under the CSP).
-    document.querySelectorAll("[data-fill]").forEach(function (bar) {
-      var value = Math.max(0, Math.min(100, parseInt(bar.getAttribute("data-fill"), 10) || 0));
-      bar.style.width = value + "%";
-    });
+    applySizes();
     addCopyButtons();
     keepLastFollowups();
     scrollDown();

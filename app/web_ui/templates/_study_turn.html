@@ -1,0 +1,8 @@
+{% if turn %}
+  {% if turn.student_text %}<div class="msg user">{{ turn.student_text }}{% if turn.verdict %}<span class="verdict {{ turn.verdict }}">{{ turn.verdict }}</span>{% endif %}</div>{% endif %}
+  <div class="row assistant"><div class="avatar">K</div><div class="msg assistant md">{{ turn.tutor_text|md }}</div></div>
+{% else %}
+  {% if student_text %}<div class="msg user">{{ student_text }}</div>{% endif %}
+  <div class="row assistant"><div class="avatar">!</div><div class="msg error">{{ error }}{% if student_text %} Your message was not saved; please send it again.{% endif %}</div></div>
+{% endif %}
+{% with oob = true %}{% include "_study_input.html" %}{% include "_study_progress.html" %}{% include "_study_modes.html" %}{% endwith %}

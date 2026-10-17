@@ -20,7 +20,9 @@ from app.llm.client import LLMError
 from app.conversation import Conversation
 from app.main import ChatState
 from app.memory.sessions import SessionNotFound
+from app.tutor import Tutor
 from app.web_ui import markdown
+from app.web_ui.study_pages import add_study_routes
 from app.tools.planner import compute_plan
 from app.web_ui.security import COOKIE, SECURITY_HEADERS, Guard
 
@@ -168,6 +170,9 @@ def create_app(agent: AgentLoop, state: ChatState, guard: Guard) -> FastAPI:
             return turn(request, None, None, error=str(exc))
         return turn(request, run, None)
 
+    if state.study is not None:
+        add_study_routes(app, state=state, tutor=Tutor(agent.llm), render=render, csrf_ok=guard.csrf_ok,
+                         plain=_plain, secure=_secure)
     return app
 
 

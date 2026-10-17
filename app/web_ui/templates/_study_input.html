@@ -1,0 +1,20 @@
+<div id="study-input" class="study-input"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <div class="quick">
+    {% if s.open_question %}
+      <button type="button" class="chip small" hx-post="/study/{{ s.id }}/turn" hx-vals='{"csrf": "{{ csrf }}", "action": "hint"}'
+              hx-target="#log" hx-swap="beforeend" data-echo="Give me a hint">💡 Hint</button>
+      <button type="button" class="chip small" hx-post="/study/{{ s.id }}/turn" hx-vals='{"csrf": "{{ csrf }}", "action": "skip"}'
+              hx-target="#log" hx-swap="beforeend" data-echo="I don't know">🤷 I don't know</button>
+    {% endif %}
+    <button type="button" class="chip small" hx-post="/study/{{ s.id }}/turn" hx-vals='{"csrf": "{{ csrf }}", "action": "continue"}'
+            hx-target="#log" hx-swap="beforeend" data-echo="Next step">➜ {{ "Skip to next step" if s.open_question else "Next step" }}</button>
+  </div>
+  <form class="composer" id="composer" hx-post="/study/{{ s.id }}/turn" hx-target="#log" hx-swap="beforeend" hx-disabled-elt="find button">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="{{ 'answer' if s.open_question else 'ask' }}">
+    <textarea id="message" name="text" maxlength="4000" rows="1" required autofocus
+              placeholder="{{ 'Type your answer…' if s.open_question else 'Ask the tutor anything about this topic…' }}"></textarea>
+    <button type="submit" class="send" aria-label="Send">➤</button>
+  </form>
+  <p class="composer-hint">{{ "Answer the question above" if s.open_question else "No open question: ask something, or go to the next step" }} · Enter to send</p>
+</div>

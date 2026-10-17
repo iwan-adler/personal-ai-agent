@@ -162,6 +162,40 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX opportunities_by_status ON opportunities (status, id);
     """,
+    # 9: Study Mode (a tutor session with progress) and small UI preferences.
+    # A study session only holds what was said in it: the tutor has no tools.
+    """
+    CREATE TABLE study_sessions (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        subject        TEXT NOT NULL,
+        topic          TEXT NOT NULL,
+        difficulty     TEXT NOT NULL CHECK (difficulty IN ('beginner', 'intermediate', 'advanced')),
+        goal           TEXT NOT NULL DEFAULT '',
+        mode           TEXT NOT NULL CHECK (mode IN ('learn', 'revise', 'practice', 'quiz')),
+        course_id      INTEGER REFERENCES courses(id) ON DELETE SET NULL,
+        started_at     TEXT NOT NULL,
+        last_active_at TEXT NOT NULL,
+        active_seconds INTEGER NOT NULL DEFAULT 0 CHECK (active_seconds >= 0),
+        correct        INTEGER NOT NULL DEFAULT 0,
+        partial        INTEGER NOT NULL DEFAULT 0,
+        incorrect      INTEGER NOT NULL DEFAULT 0,
+        open_question  TEXT                -- the question waiting for an answer, if any
+    );
+    CREATE TABLE study_messages (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL REFERENCES study_sessions(id) ON DELETE CASCADE,
+        role       TEXT NOT NULL CHECK (role IN ('tutor', 'student')),
+        content    TEXT NOT NULL,
+        verdict    TEXT CHECK (verdict IS NULL OR verdict IN ('correct', 'partial', 'incorrect')),
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX study_messages_by_session ON study_messages (session_id, id);
+    CREATE INDEX study_sessions_by_activity ON study_sessions (last_active_at);
+    CREATE TABLE preferences (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    );
+    """,
 ]
 
 

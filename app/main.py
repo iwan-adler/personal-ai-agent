@@ -25,6 +25,7 @@ from app.memory.documents import DocumentNotFound, DocumentStore
 from app.memory.facts import FactNotFound, FactStore
 from app.memory.opportunities import OpportunityNotFound, OpportunityStore
 from app.memory.sessions import SessionNotFound, SessionStore
+from app.memory.study import Preferences, StudyStore
 from app.memory.tasks import TaskStore
 from app.planner import format_plan
 from app.safety.permissions import DEFAULT_GRANTS, SafetyLayer
@@ -91,6 +92,8 @@ class ChatState:
     tasks: TaskStore | None = None
     study_hours: tuple[float, ...] | None = None
     opportunities: OpportunityStore | None = None
+    study: StudyStore | None = None
+    prefs: Preferences | None = None
     conversation: Conversation = field(default_factory=Conversation)
     # Created on the first saved turn, so launching and quitting leaves no empty session.
     session_id: int | None = None
@@ -486,7 +489,7 @@ def build_agent(
     )
     state = ChatState(sessions=sessions, audit=audit, facts=facts, docs=docs, courses=courses,
                       cards=cards, tasks=task_store, study_hours=settings.study_hours,
-                      opportunities=opportunities)
+                      opportunities=opportunities, study=StudyStore(db), prefs=Preferences(db))
     return agent, state
 
 

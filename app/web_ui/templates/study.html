@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Koda · Study{% endblock %}
+{% block body_class %}scroll-page{% endblock %}
+{% block content %}
+<header class="page-head">
+  <h1>Study Mode</h1>
+  <p class="hint">Pick a topic and Koda teaches it in small steps, asks one question at a time and keeps score.</p>
+</header>
+<div class="grid two">
+  <section class="card">
+    <h2>Start a session</h2>
+    <form class="form" hx-post="/study/start" hx-disabled-elt="find button[type=submit]" data-busy="Preparing your session…">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label>Subject
+        <input name="subject" list="course-list" maxlength="80" required placeholder="e.g. DBMS, Physics, Python" autocomplete="off">
+      </label>
+      <datalist id="course-list">{% for c in courses %}<option value="{{ c.code }}">{{ c.name }}</option>{% endfor %}</datalist>
+      <label>Topic
+        <input name="topic" maxlength="200" required placeholder="e.g. SQL joins, Newton's laws, recursion" autocomplete="off">
+      </label>
+      <fieldset>
+        <legend>Difficulty</legend>
+        <div class="segmented">
+          {% for d in difficulties %}
+            <label><input type="radio" name="difficulty" value="{{ d }}"{% if loop.first %} checked{% endif %}><span>{{ d|capitalize }}</span></label>
+          {% endfor %}
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Mode</legend>
+        <div class="segmented">
+          {% for m in modes %}
+            <label><input type="radio" name="mode" value="{{ m }}"{% if loop.first %} checked{% endif %}><span>{{ m|capitalize }}</span></label>
+          {% endfor %}
+        </div>
+        <p class="hint small">Learn: step by step · Revise: recap and recall · Practice: exercises · Quiz: questions only</p>
+      </fieldset>
+      <label><span>Learning goal <span class="hint">(optional)</span></span>
+        <input name="goal" maxlength="300" placeholder="e.g. Be ready for Friday's exam" autocomplete="off">
+      </label>
+      <button type="submit" class="primary">Start studying</button>
+    </form>
+  </section>
+  <section class="card">
+    <h2>Your sessions</h2>
+    {% if sessions %}
+      <ul class="list sessions">
+      {% for s in sessions %}
+        <li>
+          <a href="/study/{{ s.id }}" class="session-link">
+            <span><span class="tag">{{ s.subject }}</span><strong>{{ s.topic }}</strong></span>
+            <span class="hint">{{ s.mode|capitalize }} · {{ s.difficulty }} · {{ s.answered }} answered{% if s.score_percent is not none %} · {{ s.score_percent }}%{% endif %} · {{ s.minutes }} min</span>
+          </a>
+          <button type="button" class="icon-btn" title="Delete session" aria-label="Delete session"
+                  hx-post="/study/{{ s.id }}/delete" hx-vals='{"csrf": "{{ csrf }}"}'
+                  hx-confirm="Delete this study session and its messages?">✕</button>
+        </li>
+      {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty">
+        <div class="empty-ico">🎓</div>
+        <p>No sessions yet. Start one on the left; it is saved so you can continue later.</p>
+      </div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

@@ -19,6 +19,10 @@ and their reasons are in [docs/architecture.md](docs/architecture.md).
   button) by a small built-in renderer that escapes everything first; a sidebar list
   of recent chats to reopen or delete; suggested prompts; follow-up buttons (Explain
   more, Give an example, Test my understanding).
+- Study Mode (`/study`): pick a subject, topic, difficulty, goal and mode (learn, revise,
+  practice, quiz); a tutor without tools teaches in short steps, asks one question at a
+  time and gives feedback. Python keeps the score (a verdict counts only for an answer to
+  an open question) and the study time; sessions are saved (migration 9).
 - Local models (`OPENAI_BASE_URL` on 127.0.0.1 or localhost) get a 180 s default
   timeout instead of 60 s: on a CPU the first answer can take over a minute.
 

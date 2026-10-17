@@ -1,0 +1,15 @@
+<aside class="study-progress" id="study-progress"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <h2>Progress</h2>
+  <div class="ring" data-percent="{{ s.score_percent or 0 }}">
+    <span>{% if s.score_percent is not none %}{{ s.score_percent }}%{% else %}–{% endif %}</span>
+  </div>
+  <p class="hint center">{{ "score" if s.answered else "no answers yet" }}</p>
+  <dl class="tally">
+    <div><dt>Answered</dt><dd>{{ s.answered }}</dd></div>
+    <div><dt class="ok">Correct</dt><dd>{{ s.correct }}</dd></div>
+    <div><dt class="partial">Partly right</dt><dd>{{ s.partial }}</dd></div>
+    <div><dt class="bad">Incorrect</dt><dd>{{ s.incorrect }}</dd></div>
+    <div><dt>Study time</dt><dd>{{ s.minutes }} min</dd></div>
+    <div><dt>Mode</dt><dd>{{ s.mode|capitalize }}</dd></div>
+  </dl>
+</aside>

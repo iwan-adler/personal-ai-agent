@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Koda · {{ s.topic }}{% endblock %}
+{% block body_class %}chat-page study-page{% endblock %}
+{% block sidebar_extra %}
+<a href="/study" class="back-link">← All study sessions</a>
+{% endblock %}
+{% block content %}
+<div class="study-layout">
+  <div class="study-main">
+    <header class="study-head">
+      <div>
+        <div class="crumbs"><span class="tag">{{ s.subject }}</span> {{ s.difficulty|capitalize }}</div>
+        <h1>{{ s.topic }}</h1>
+        {% if s.goal %}<p class="hint">Goal: {{ s.goal }}</p>{% endif %}
+      </div>
+      {% include "_study_modes.html" %}
+    </header>
+    <section id="log" aria-live="polite">
+      {% for m in messages %}
+        {% if m.role == "student" %}
+          <div class="msg user">{{ m.content }}{% if m.verdict %}<span class="verdict {{ m.verdict }}">{{ m.verdict }}</span>{% endif %}</div>
+        {% else %}
+          <div class="row assistant"><div class="avatar">K</div><div class="msg assistant md">{{ m.content|md }}</div></div>
+        {% endif %}
+      {% else %}
+        <div class="empty" id="welcome">
+          <p>The tutor has not answered yet (the model may have been busy). Press <strong>Next step</strong> to start.</p>
+        </div>
+      {% endfor %}
+    </section>
+    {% include "_study_input.html" %}
+  </div>
+  {% include "_study_progress.html" %}
+</div>
+{% endblock %}
