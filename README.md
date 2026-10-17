@@ -52,6 +52,8 @@ flowchart LR
   | `task_list` | SAFE | Your saved tasks, earliest deadline first |
   | `task_add` | CONFIRMATION | Add a task, with an optional `YYYY-MM-DD` deadline (no past dates) |
   | `task_complete` | CONFIRMATION | Mark a task done by id |
+  | `task_estimate` | CONFIRMATION | Set how many hours a task still needs; the prompt shows old and new |
+  | `plan_week` | SAFE | Your study plan for the next days, computed in Python (not by the model) from deadlines, estimates, `STUDY_HOURS` and due flashcards, with warnings when time runs short |
   | `fact_search` | SAFE | Keyword search over what you told the agent in earlier sessions |
   | `fact_list` | SAFE | Saved facts, newest first, optionally one topic |
   | `fact_save` | CONFIRMATION | Remember a fact about you (up to 300 characters); you see the exact text first |
@@ -164,6 +166,7 @@ Commands (handled by the CLI, never sent to the model):
 | `/forget-session <id>` | Delete a session and its messages permanently (asks first) |
 | `/facts [topic]` | List what the agent remembers about you |
 | `/forget-fact <id>` | Delete a remembered fact permanently (asks first) |
+| `/plan [days]` | Your study plan for the next days (default 7, at most 28) |
 | `/quiz [course] [n]` | Study due flashcards: Enter shows the answer, then grade 1 again, 2 hard, 3 good, 4 easy (`q` stops; every grade is saved at once). Runs without the model |
 | `/cards [course]` | List your flashcards with their due dates |
 | `/forget-card <id>` | Delete a flashcard and its review history (asks first) |
@@ -188,6 +191,7 @@ All settings live in `.env` ([`.env.example`](.env.example) documents each one).
 | `MAX_TOKENS_PER_RUN` | `50000` | Token budget per message |
 | `MAX_REPAIR_ATTEMPTS` | `2` | Times to ask the model to fix malformed JSON (0–5) |
 | `LLM_TIMEOUT_SECONDS` | `60` | Per API call; the SDK retries up to 2 more times |
+| `STUDY_HOURS` | *(empty)* | Study hours per weekday for the planner, e.g. `mon=2,tue=2,wed=3,thu=2,fri=1,sat=4,sun=0` (0–16 each, missing days are 0). Empty means 2 h every day, and the plan says so |
 | `MAX_HISTORY_MESSAGES` | `20` | Recent messages sent to the model each turn (4–200) |
 | `WORKSPACE_DIR` | *(empty)* | Absolute path of the only folder the file tools may read, e.g. `C:\Users\you\Documents\koda-workspace`. Empty means no file tools. Not allowed: a drive root, your home folder itself, or a folder containing this project |
 | `GITHUB_REPOS` | *(empty)* | Comma-separated `owner/name` repos the GitHub tools may read (max 20). Empty means no GitHub tools |
@@ -222,7 +226,7 @@ tail -n 20 data/audit.jsonl               # macOS / Linux
 python -m pytest
 ```
 
-There are 590 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
+There are 617 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
 
 - the agent loop: repair of malformed output, budgets, repeated-failure and repeated-call stops, the history window, and tool output that tries to break out of its `<tool_result>` block
 - the safety layer: every autonomy level, missing permissions, `HIGH_RISK` always confirming, Level 4 grants, duplicate writes
@@ -234,6 +238,7 @@ There are 590 tests (counting parametrised cases), which run in under a minute w
 - files: Windows path tricks (`..`, drives, UNC, `file:stream`, `CON`, trailing dots, junctions, hard links) refused, overwrites only with the right checksum, backups, nothing half-written
 - GitHub: only allowlisted repos, redirects refused (tested with real local servers), tokens never leaking, secrets refused before any publish prompt, the full text shown before publishing
 - outside content: after reading a file or an issue, Level 4 grants are suspended, so injected text cannot drive a write
+- the planner: earliest deadline first with fixed dates, work stopping the day before a deadline, flashcard time reserved first, exact shortfalls in quarter hours, overdue and due-today warnings
 - flashcards: SM-2 intervals and ease, batches shown in full before saving, card text never sent back to the model, `/quiz` with scripted key presses (again comes back once, stopping keeps progress)
 - courses: upgrading a database with existing tasks, facts and documents, case-insensitive unique codes, linking and filtering, deleting a course without losing what was linked to it
 - documents: PDFs (built inside the tests) parsed only in an isolated child process, a hanging parser killed, encrypted and broken PDFs refused, citations with page and line numbers, junctions and hard links in `library/` ignored

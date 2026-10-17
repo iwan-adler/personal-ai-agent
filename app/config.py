@@ -24,6 +24,7 @@ from pydantic import (
     model_validator,
 )
 
+from app.planner import parse_study_hours
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -61,6 +62,22 @@ class Settings(BaseModel):
     max_history_messages: int = Field(default=20, ge=4, le=200)
     # The only folder the file tools can reach; None means no file tools at all.
     workspace_dir: Path | None = None
+    # Study hours per weekday, Monday first; None means the planner assumes a default.
+    study_hours: tuple[float, float, float, float, float, float, float] | None = None
+
+    @field_validator("study_hours", mode="before")
+    @classmethod
+    def _parse_study_hours(cls, value: object) -> object:
+        if isinstance(value, str):
+            return parse_study_hours(value) if value.strip() else None
+        return value
+
+    @field_validator("study_hours")
+    @classmethod
+    def _study_hours_ok(cls, value: tuple[float, ...] | None) -> tuple[float, ...] | None:
+        if value is not None and not all(0 <= hours <= 16 for hours in value):
+            raise ValueError("STUDY_HOURS: each day must be 0-16 hours")
+        return value
     # Optional; like the OpenAI key a SecretStr, removed from os.environ on load.
     github_token: SecretStr | None = None
     # The only repos the GitHub tools can reach ("owner/name", lowercase); empty
@@ -221,6 +238,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
             llm_timeout_seconds=_int_env("LLM_TIMEOUT_SECONDS", 60),
             max_history_messages=_int_env("MAX_HISTORY_MESSAGES", 20),
             workspace_dir=os.getenv("WORKSPACE_DIR"),
+            study_hours=os.getenv("STUDY_HOURS", ""),
             # pop for the same reason as OPENAI_API_KEY above.
             github_token=os.environ.pop("GITHUB_TOKEN", ""),
             github_repos=os.getenv("GITHUB_REPOS", ""),

@@ -67,6 +67,18 @@ data is the user's own, so it does not taint. Only `/forget-course` deletes, and
 it only clears links. A re-imported document keeps its course unless a new one is
 given.
 
+### Planner (V0.7)
+
+`plan_week` (SAFE, `tasks.read`) and `/plan` show a plan computed by a **pure
+function** (`app/planner.py`: no database, clock or model), so the same input always
+gives the same plan and the model only explains it. Each day's capacity is
+`STUDY_HOURS` for its weekday (2 h if unset, said in the plan) minus 30 s per due
+flashcard. Open tasks with a deadline and `estimate_hours` (remaining effort,
+migration 7, set via `task_add` or `task_estimate`) are scheduled earliest deadline
+first in whole quarter hours, until the day **before** the deadline. Warnings name
+the exact shortfall, overdue tasks and tasks due today; tasks without an estimate or
+deadline are listed, not scheduled.
+
 ### Tutor: flashcards (V0.6)
 
 `card_propose` (CONFIRMATION, `cards.write`) saves up to 20 cards per batch, each with

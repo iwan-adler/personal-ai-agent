@@ -35,6 +35,7 @@ class Task:
     completed_at: str | None
     course_id: int | None = None
     course: str | None = None  # the course code, for display
+    estimate_hours: float | None = None  # remaining effort, for the planner
 
 
 # Tasks with their course code; every read goes through this.
@@ -55,13 +56,26 @@ class TaskStore:
     def path(self) -> Path:
         return self.db.path
 
-    def add(self, title: str, due_date: date | None = None, course_id: int | None = None) -> Task:
+    def add(self, title: str, due_date: date | None = None, course_id: int | None = None,
+            estimate_hours: float | None = None) -> Task:
         with self.db.connect() as conn:
             cursor = conn.execute(
-                "INSERT INTO tasks (title, due_date, created_at, course_id) VALUES (?, ?, ?, ?)",
-                (title, due_date.isoformat() if due_date else None, _now(), course_id),
+                "INSERT INTO tasks (title, due_date, created_at, course_id, estimate_hours)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (title, due_date.isoformat() if due_date else None, _now(), course_id, estimate_hours),
             )
             return self._get(conn, cursor.lastrowid)
+
+    def set_estimate(self, task_id: int, hours: float | None) -> tuple[Task, Task]:
+        """Set the remaining effort; returns (before, after)."""
+        with self.db.connect() as conn:
+            before = self._get(conn, task_id)
+            conn.execute("UPDATE tasks SET estimate_hours = ? WHERE id = ?", (hours, task_id))
+            return before, self._get(conn, task_id)
+
+    def get(self, task_id: int) -> Task:
+        with self.db.connect() as conn:
+            return self._get(conn, task_id)
 
     def list(self, status: StatusFilter = "open", limit: int = 20,
              course_id: int | None = None) -> list[Task]:

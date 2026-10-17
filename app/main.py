@@ -22,10 +22,12 @@ from app.memory.documents import DocumentNotFound, DocumentStore
 from app.memory.facts import FactNotFound, FactStore
 from app.memory.sessions import SessionNotFound, SessionStore
 from app.memory.tasks import TaskStore
+from app.planner import format_plan
 from app.safety.permissions import DEFAULT_GRANTS, SafetyLayer
 from app.tools.base import ToolContext, ToolRegistry
 from app.tools.builtin import build_default_registry
 from app.tools.cards import register_card_tools
+from app.tools.planner import compute_plan, register_planner_tools
 from app.tools.courses import register_course_tools
 from app.tools.docs import register_doc_tools
 from app.tools.facts import register_fact_tools
@@ -55,6 +57,7 @@ HELP = """Commands:
   /forget-session <id>    delete a session and its messages permanently
   /facts [topic]          list what the agent remembers about you
   /forget-fact <id>       delete a remembered fact permanently
+  /plan [days]            your study plan for the next days (default 7)
   /quiz [course] [n]      study due flashcards (no model involved)
   /cards [course]         list your flashcards
   /forget-card <id>       delete a flashcard and its review history
@@ -76,6 +79,8 @@ class ChatState:
     docs: DocumentStore | None = None
     courses: CourseStore | None = None
     cards: CardStore | None = None
+    tasks: TaskStore | None = None
+    study_hours: tuple[float, ...] | None = None
     conversation: Conversation = field(default_factory=Conversation)
     # Created on the first saved turn, so launching and quitting leaves no empty session.
     session_id: int | None = None
@@ -259,6 +264,12 @@ def handle_command(line: str, state: ChatState, confirm: Callable[[str], bool] =
     parts = line.split()
     command, arg = parts[0].lower(), (parts[1] if len(parts) > 1 else None)
 
+    if command == "/plan":
+        if state.tasks is None:
+            return "Tasks are not configured."
+        days = int(arg) if arg is not None and arg.isdigit() else 7
+        return format_plan(compute_plan(state.tasks, state.cards, state.study_hours, max(1, min(days, 28))))
+
     if command == "/quiz":
         return _quiz(parts, state, ask)
 
@@ -371,6 +382,7 @@ def build_registry(settings: Settings, backup_dir: Path = DATA_DIR / "file-backu
     register_fact_tools(registry)
     register_course_tools(registry)
     register_card_tools(registry)
+    register_planner_tools(registry, settings.study_hours)
     if settings.workspace_dir is not None:
         register_file_tools(registry, settings.workspace_dir)
         register_file_write_tools(registry, settings.workspace_dir, backup_dir)
@@ -428,7 +440,7 @@ def main() -> int:
         audit=audit,
     )
     state = ChatState(sessions=sessions, audit=audit, facts=facts, docs=docs, courses=courses,
-                      cards=cards)
+                      cards=cards, tasks=task_store, study_hours=settings.study_hours)
 
     print("Personal AI Agent (quit / exit to stop)")
     print(f"model={settings.openai_model} autonomy={int(settings.autonomy_level)}")

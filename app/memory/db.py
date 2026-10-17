@@ -140,6 +140,11 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX reviews_by_day ON reviews (reviewed_on);
     """,
+    # 7: remaining effort per task, for the planner (V0.7).
+    """
+    ALTER TABLE tasks ADD COLUMN estimate_hours REAL
+        CHECK (estimate_hours IS NULL OR (estimate_hours > 0 AND estimate_hours <= 200));
+    """,
 ]
 
 

@@ -142,6 +142,16 @@ class CardStore:
             ).fetchall()
         return [Card(**dict(row)) for row in rows]
 
+    def due_counts(self, start: date, days: int) -> dict[date, int]:
+        """Cards due on each day from start; start also counts everything overdue."""
+        end = start + timedelta(days=days - 1)
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT max(due_date, ?) AS day, COUNT(*) FROM cards WHERE due_date <= ? GROUP BY day",
+                (start.isoformat(), end.isoformat()),
+            ).fetchall()
+        return {date.fromisoformat(row[0]): int(row[1]) for row in rows}
+
     def next_due_date(self, course_id: int | None = None) -> str | None:
         course_filter = "WHERE course_id = ?" if course_id is not None else ""
         with self.db.connect() as conn:
