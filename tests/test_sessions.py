@@ -115,7 +115,8 @@ def test_audit_gets_session_ids_but_never_content(tmp_path):
     events = [e for e in state.audit.read() if e["event"].startswith("session_")]
     assert [e["event"] for e in events] == ["session_start", "session_resume"]
     assert all(e["session_id"] == state.session_id for e in events)
-    assert "4821" not in state.audit.path.read_text(encoding="utf-8")
+    # The phrase, not bare digits: timestamps and ids can contain "4821" by chance.
+    assert "PIN is 4821" not in state.audit.path.read_text(encoding="utf-8")
 
 
 def test_no_session_is_created_until_something_is_said(tmp_path):

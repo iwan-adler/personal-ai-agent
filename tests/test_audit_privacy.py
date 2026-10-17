@@ -45,7 +45,9 @@ def _run(tmp_path, replies, autonomy, *, registry=None, confirm=None):
 def _assert_secret_not_logged(audit: AuditLog) -> None:
     text = audit.path.read_text(encoding="utf-8")
     assert SECRET not in text
-    assert "4821" not in text
+    # Not the bare digits: timestamps and ids contain random digit runs, so "4821"
+    # alone can appear by chance (it did, in a timestamp's microseconds).
+    assert "PIN is 4821" not in text
 
 
 def _registry_with(handler, timeout_seconds=1.0):
