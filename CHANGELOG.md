@@ -11,6 +11,12 @@ and their reasons are in [docs/architecture.md](docs/architecture.md).
 - Koda as a desktop app on Windows: `scripts\install-shortcut.cmd` adds a Koda icon that
   opens the web UI in its own Edge window (own profile, no extensions, no console) and
   stops Koda when the window is closed (`python -m app.web_ui --app`).
+- New chat window design: sidebar, chat bubbles, instant echo of your message with a
+  "Thinking…" timer, Enter to send, suggestions, "New chat", visible errors (before,
+  a slow model or a refused request looked like nothing happened), and a redesigned
+  dashboard. Light and dark theme. All text is still added as text, never as HTML.
+- Local models (`OPENAI_BASE_URL` on 127.0.0.1 or localhost) get a 180 s default
+  timeout instead of 60 s: on a CPU the first answer can take over a minute.
 
 ## 1.0.1 (2026-10-17)
 

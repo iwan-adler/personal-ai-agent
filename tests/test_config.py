@@ -107,6 +107,18 @@ def test_empty_env_value_uses_the_default(monkeypatch, env_file):
     assert load_settings(env_file).max_steps == 8
 
 
+@pytest.mark.parametrize(("base_url", "timeout"), [
+    ("", 60), ("https://api.groq.com/openai/v1", 60), ("http://127.0.0.1:11434/v1", 180),
+    ("http://localhost:11434/v1", 180), ("http://localhost.evil.com/v1", 60),
+])
+def test_local_models_get_a_longer_default_timeout(monkeypatch, env_file, base_url, timeout):
+    monkeypatch.setenv("OPENAI_BASE_URL", base_url)
+    assert load_settings(env_file).llm_timeout_seconds == timeout
+    monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "30")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")  # loading removes it from the environment
+    assert load_settings(env_file).llm_timeout_seconds == 30  # an explicit value always wins
+
+
 def test_config_error_never_echoes_the_api_key(monkeypatch, env_file):
     monkeypatch.setenv("MAX_STEPS", "abc")
     with pytest.raises(ConfigError) as excinfo:

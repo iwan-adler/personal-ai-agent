@@ -17,6 +17,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from app.agent.loop import AgentLoop, ApprovalError, AgentRun, RunStatus
 from app.llm.client import LLMError
+from app.conversation import Conversation
 from app.main import ChatState
 from app.tools.planner import compute_plan
 from app.web_ui.security import COOKIE, SECURITY_HEADERS, Guard
@@ -60,7 +61,8 @@ def create_app(agent: AgentLoop, state: ChatState, guard: Guard) -> FastAPI:
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
     def render(request: Request, name: str, **context) -> HTMLResponse:
-        return templates.TemplateResponse(request, name, {"csrf": guard.csrf, **context})
+        return templates.TemplateResponse(
+            request, name, {"csrf": guard.csrf, "model": agent.settings.openai_model, **context})
 
     def turn(request: Request, run: AgentRun | None, user_text: str | None, error: str | None = None):
         if run is not None and run.status != RunStatus.AWAITING_APPROVAL:
@@ -76,7 +78,7 @@ def create_app(agent: AgentLoop, state: ChatState, guard: Guard) -> FastAPI:
         # The saved session (your messages and final replies), not the internal
         # conversation, which also holds model JSON and tool results.
         history = state.sessions.messages(state.session_id) if state.session_id is not None else []
-        return render(request, "index.html", history=history, pending=agent.pending_approvals())
+        return render(request, "index.html", page="chat", history=history, pending=agent.pending_approvals())
 
     @app.get("/dashboard", response_class=HTMLResponse)
     def dashboard(request: Request):
@@ -85,6 +87,7 @@ def create_app(agent: AgentLoop, state: ChatState, guard: Guard) -> FastAPI:
         return render(
             request,
             "dashboard.html",
+            page="dashboard",
             plan=plan,
             tasks=state.tasks.list(status="open", limit=50) if state.tasks else [],
             courses=state.courses.list() if state.courses else [],
@@ -106,6 +109,15 @@ def create_app(agent: AgentLoop, state: ChatState, guard: Guard) -> FastAPI:
         except LLMError as exc:
             return turn(request, None, message, error=str(exc))
         return turn(request, run, message)
+
+    @app.post("/new")
+    def new_chat(csrf: str = Form("")):
+        """Start a new session, like /new in the CLI; the page reloads empty."""
+        if not guard.csrf_ok(csrf):
+            return _plain(403, "Missing or wrong CSRF value.")
+        state.conversation = Conversation()
+        state.session_id = None
+        return _secure(Response(status_code=204, headers={"HX-Refresh": "true"}))
 
     @app.post("/approve", response_class=HTMLResponse)
     def approve(request: Request, approval_id: str = Form(""), nonce: str = Form(""),

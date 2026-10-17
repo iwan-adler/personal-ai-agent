@@ -197,7 +197,7 @@ Each launch starts a new session; it is saved from your first message on.
 python -m app.web_ui
 ```
 
-Prints a one-time link such as `http://127.0.0.1:8765/?token=…`. Opening it signs you in (the token moves into an HttpOnly, SameSite=Strict cookie and leaves the address bar). The page offers the same agent as the CLI: when a tool needs your approval, a card shows exactly what the terminal would ask, with **Approve** and **Decline**; the run continues where it paused. A read-only **Dashboard** shows this week's plan with its warnings, open tasks, courses, flashcards due and new opportunities. Keep the link private: anyone with it can use the agent while the server runs. The server only listens on `127.0.0.1`, refuses requests for other host names, other sites' form posts and pages without the token, and renders every model and tool text escaped under a strict Content-Security-Policy.
+Prints a one-time link such as `http://127.0.0.1:8765/?token=…`. Opening it signs you in (the token moves into an HttpOnly, SameSite=Strict cookie and leaves the address bar). The page is a chat window with a sidebar (Chat, Dashboard, New chat): your message appears at once, a "Thinking…" bubble counts the seconds while the model works, Enter sends and Shift+Enter starts a new line, and errors are shown instead of nothing happening. It follows your Windows light or dark theme. It offers the same agent as the CLI: when a tool needs your approval, a card shows exactly what the terminal would ask, with **Approve** and **Decline**; the run continues where it paused. A read-only **Dashboard** shows this week's plan with its warnings, open tasks, courses, flashcards due and new opportunities. Keep the link private: anyone with it can use the agent while the server runs. The server only listens on `127.0.0.1`, refuses requests for other host names, other sites' form posts and pages without the token, and renders every model and tool text escaped under a strict Content-Security-Policy.
 
 `python -m app.web_ui --app` (what the desktop icon runs) opens the same page in an Edge app window with its **own profile** in `data/app-window/` and extensions turned off, so your normal browser's extensions never see Koda. Koda stops when that window is closed. The sign-in link is passed on Edge's command line, where other programs of your Windows user could read it; they could read `data/` anyway, and the token is new on every start.
 
@@ -240,7 +240,7 @@ All settings live in `.env` ([`.env.example`](.env.example) documents each one).
 | `MAX_STEPS` | `8` | Model decisions allowed per message (1–50) |
 | `MAX_TOKENS_PER_RUN` | `50000` | Token budget per message |
 | `MAX_REPAIR_ATTEMPTS` | `2` | Times to ask the model to fix malformed JSON (0–5) |
-| `LLM_TIMEOUT_SECONDS` | `60` | Per API call; the SDK retries up to 2 more times |
+| `LLM_TIMEOUT_SECONDS` | `60` (`180` for a local `OPENAI_BASE_URL`) | Per API call; the SDK retries up to 2 more times. Local models on a CPU can need over a minute for the first answer |
 | `STUDY_HOURS` | *(empty)* | Study hours per weekday for the planner, e.g. `mon=2,tue=2,wed=3,thu=2,fri=1,sat=4,sun=0` (0–16 each, missing days are 0). Empty means 2 h every day, and the plan says so |
 | `BACKUP_DIR` | *(empty)* | Absolute path of an existing folder for backups, not inside `WORKSPACE_DIR`. Empty means `data/backups/` |
 | `WEB_UI_PORT` | `8765` | Port of the local web interface (1024–65535); it only ever listens on `127.0.0.1` |
@@ -282,7 +282,7 @@ tail -n 20 data/audit.jsonl               # macOS / Linux
 python -m pytest
 ```
 
-There are 805 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
+There are 814 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
 
 - the agent loop: repair of malformed output, budgets, repeated-failure and repeated-call stops, the history window, and tool output that tries to break out of its `<tool_result>` block
 - the safety layer: every autonomy level, missing permissions, `HIGH_RISK` always confirming, Level 4 grants, duplicate writes

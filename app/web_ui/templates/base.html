@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {# htmx must never run code from server responses, and never talk to other hosts. #}
+  <meta name="htmx-config" content='{"allowEval": false, "allowScriptTags": false, "selfRequestsOnly": true, "includeIndicatorStyles": false}'>
+  <title>{% block title %}Koda{% endblock %}</title>
+  <link rel="icon" href="/static/koda.png">
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/htmx.min.js"></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body class="{% block body_class %}{% endblock %}">
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand"><img src="/static/koda.png" alt="" width="32" height="32"><span>Koda</span></div>
+    <nav>
+      <a href="/" class="{% if page == 'chat' %}active{% endif %}"><span class="ico">💬</span>Chat</a>
+      <a href="/dashboard" class="{% if page == 'dashboard' %}active{% endif %}"><span class="ico">📊</span>Dashboard</a>
+    </nav>
+    {% if page == 'chat' %}
+    <form hx-post="/new" class="new-chat">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" class="ghost">＋ New chat</button>
+    </form>
+    {% endif %}
+    <div class="sidebar-foot">
+      <div class="status"><span class="dot"></span>Running on this computer</div>
+      {% if model %}<div class="model">Model: {{ model }}</div>{% endif %}
+    </div>
+  </aside>
+  <main class="content">
+    {% block content %}{% endblock %}
+  </main>
+</div>
+</body>
+</html>

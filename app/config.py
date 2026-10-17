@@ -312,6 +312,16 @@ def _format_settings_error(exc: ValidationError) -> str:
     return "Invalid settings: " + "; ".join(parts)
 
 
+LOCAL_LLM_HOSTS = ("127.0.0.1", "localhost", "[::1]")
+
+
+def _default_llm_timeout(base_url: str | None) -> int:
+    """60 s for hosted APIs; 180 s for a model on this computer (e.g. Ollama on a
+    CPU), whose first answer can take over a minute while the prompt is read."""
+    host = (base_url or "").split("://", 1)[-1].split("/", 1)[0].rsplit(":", 1)[0].lower()
+    return 180 if base_url and host in LOCAL_LLM_HOSTS else 60
+
+
 def load_settings(env_file: Path | None = None) -> Settings:
     """Read `.env` from the project root (never from app/.env)."""
     path = env_file or (PROJECT_ROOT / ".env")
@@ -347,7 +357,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
             max_steps=_int_env("MAX_STEPS", 8),
             max_tokens_per_run=_int_env("MAX_TOKENS_PER_RUN", 50_000),
             max_repair_attempts=_int_env("MAX_REPAIR_ATTEMPTS", 2),
-            llm_timeout_seconds=_int_env("LLM_TIMEOUT_SECONDS", 60),
+            llm_timeout_seconds=_int_env("LLM_TIMEOUT_SECONDS", _default_llm_timeout(os.getenv("OPENAI_BASE_URL"))),
             max_history_messages=_int_env("MAX_HISTORY_MESSAGES", 20),
             web_ui_port=_int_env("WEB_UI_PORT", 8765),
             workspace_dir=os.getenv("WORKSPACE_DIR"),

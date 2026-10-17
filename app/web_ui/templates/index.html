@@ -1,34 +1,30 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  {# htmx must never run code from server responses, and never talk to other hosts. #}
-  <meta name="htmx-config" content='{"allowEval": false, "allowScriptTags": false, "selfRequestsOnly": true, "includeIndicatorStyles": false}'>
-  <title>Koda</title>
-  <link rel="stylesheet" href="/static/app.css">
-  <script src="/static/htmx.min.js"></script>
-</head>
-<body>
-<main>
-  <header>
-    <h1>Koda</h1>
-    <nav><strong>Chat</strong> · <a href="/dashboard">Dashboard</a></nav>
-    <p class="hint">Local only. Every action that changes something asks you first.</p>
-  </header>
-  <section id="log" aria-live="polite">
-    {% for role, content in history %}
-      <div class="msg {{ role }}">{{ content }}</div>
-    {% endfor %}
-    {% for p in pending %}
-      {% include "_approval.html" %}
-    {% endfor %}
-  </section>
-  <form class="composer" hx-post="/chat" hx-target="#log" hx-swap="beforeend">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    {% include "_message_box.html" %}
-    <button type="submit">Send</button>
-  </form>
-</main>
-</body>
-</html>
+{% extends "base.html" %}
+{% block body_class %}chat-page{% endblock %}
+{% block content %}
+<section id="log" aria-live="polite">
+  <div class="welcome{% if history or pending %} hidden{% endif %}" id="welcome">
+    <img src="/static/koda.png" alt="" width="64" height="64">
+    <h1>Hi, I'm Koda.</h1>
+    <p>Your personal assistant for studying, planning and getting things done. Anything that changes something asks you first.</p>
+    <div class="suggestions">
+      <button type="button" class="chip" data-prompt="What are my open tasks?">What are my open tasks?</button>
+      <button type="button" class="chip" data-prompt="Plan my study week">Plan my study week</button>
+      <button type="button" class="chip" data-prompt="Add a task: ">Add a task…</button>
+      <button type="button" class="chip" data-prompt="Run python --version in the sandbox">Try the sandbox</button>
+    </div>
+  </div>
+  {% for role, content in history %}
+    {% if role == "user" %}<div class="msg user">{{ content }}</div>
+    {% else %}<div class="row assistant"><div class="avatar">K</div><div class="msg assistant">{{ content }}</div></div>{% endif %}
+  {% endfor %}
+  {% for p in pending %}
+    {% include "_approval.html" %}
+  {% endfor %}
+</section>
+<form class="composer" id="composer" hx-post="/chat" hx-target="#log" hx-swap="beforeend" hx-disabled-elt="find button">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  {% include "_message_box.html" %}
+  <button type="submit" class="send" aria-label="Send">➤</button>
+</form>
+<p class="composer-hint">Enter to send · Shift+Enter for a new line · Local models can take up to a minute.</p>
+{% endblock %}

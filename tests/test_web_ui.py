@@ -8,6 +8,7 @@ The model is a FakeLLMClient; nothing leaves the machine.
 import http.client
 import json
 import re
+from pathlib import Path
 import socket
 import threading
 import time
@@ -293,3 +294,41 @@ def test_dashboard_escapes_everything_and_needs_the_token(make_server):
     assert "&lt;script&gt;" in body and "&lt;img src=x" in body
     assert server.request("GET", "/dashboard", cookie=False)[0] == 403
     assert server.request("GET", "/dashboard", host="evil.example")[0] == 400
+
+
+# --- The chat window (app.js, new chat) ---------------------------------------------------------------
+
+
+def test_new_chat_starts_an_empty_session(make_server):
+    server = make_server([_reply("first answer")])
+    server.chat("hello")
+    assert server.state.session_id is not None
+    assert server.request("POST", "/new", body={"csrf": "wrong"})[0] == 403
+    status, headers, _ = server.request("POST", "/new", body={"csrf": server.guard.csrf})
+    assert status == 204 and headers["hx-refresh"] == "true"
+    assert server.state.session_id is None and "first answer" not in server.request("GET", "/")[2]
+
+
+def test_pages_show_the_model_and_load_only_own_scripts(make_server):
+    server = make_server()
+    body = server.request("GET", "/")[2]
+    assert "Model: " in body
+    assert re.findall(r"<script[^>]*src=\"([^\"]+)\"", body) == ["/static/htmx.min.js", "/static/app.js"]
+    assert server.request("GET", "/static/app.js")[0] == 200
+
+
+def test_templates_have_no_inline_code_or_styles():
+    """Security: the CSP blocks inline scripts, handlers and styles; keep templates free of them."""
+    templates = Path(web_main.__file__).parent / "templates"
+    for path in templates.glob("*.html"):
+        text = path.read_text(encoding="utf-8")
+        assert not re.search(r"<script(?![^>]*\bsrc=)", text), path.name
+        assert not re.search(r"\son[a-z]+\s*=", text), path.name
+        assert " style=" not in text, path.name
+
+
+def test_app_js_never_builds_html_from_text():
+    """Security: messages are added with textContent only."""
+    script = (Path(web_main.__file__).parents[1] / "web" / "static" / "app.js").read_text(encoding="utf-8")
+    for sink in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function"):
+        assert sink not in script, sink
