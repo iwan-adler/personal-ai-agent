@@ -1,22 +1,31 @@
 {% extends "base.html" %}
 {% block body_class %}chat-page{% endblock %}
+{% block sidebar_extra %}
+<form hx-post="/new" class="new-chat">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button type="submit" class="ghost">＋ New chat</button>
+</form>
+{% include "_chat_list.html" %}
+{% endblock %}
 {% block content %}
 <section id="log" aria-live="polite">
   <div class="welcome{% if history or pending %} hidden{% endif %}" id="welcome">
     <img src="/static/koda.png" alt="" width="64" height="64">
     <h1>Hi, I'm Koda.</h1>
-    <p>Your personal assistant for studying, planning and getting things done. Anything that changes something asks you first.</p>
+    <p>Your study partner and assistant. Ask anything, or start with one of these. Anything that changes your data asks you first.</p>
     <div class="suggestions">
-      <button type="button" class="chip" data-prompt="What are my open tasks?">What are my open tasks?</button>
-      <button type="button" class="chip" data-prompt="Plan my study week">Plan my study week</button>
-      <button type="button" class="chip" data-prompt="Add a task: ">Add a task…</button>
-      <button type="button" class="chip" data-prompt="Run python --version in the sandbox">Try the sandbox</button>
+      <button type="button" class="chip" data-prompt="Explain this topic to me step by step: ">📘 Explain a Topic</button>
+      <button type="button" class="chip" data-prompt="Quiz me with 3 questions, one at a time, on: ">❓ Quiz Me</button>
+      <button type="button" class="chip" data-prompt="Give me a clear, concrete example of: ">💡 Give an Example</button>
+      <button type="button" class="chip" data-prompt="Summarize these notes into key points:&#10;&#10;">📝 Summarize Notes</button>
+      <button type="button" class="chip" data-prompt="Look at my open tasks and plan my study session for today.">🗓️ Plan My Study Session</button>
     </div>
   </div>
   {% for role, content in history %}
     {% if role == "user" %}<div class="msg user">{{ content }}</div>
-    {% else %}<div class="row assistant"><div class="avatar">K</div><div class="msg assistant">{{ content }}</div></div>{% endif %}
+    {% else %}<div class="row assistant"><div class="avatar">K</div><div class="msg assistant md">{{ content|md }}</div></div>{% endif %}
   {% endfor %}
+  {% if history and history[-1][0] == "assistant" and not pending %}{% include "_followups.html" %}{% endif %}
   {% for p in pending %}
     {% include "_approval.html" %}
   {% endfor %}

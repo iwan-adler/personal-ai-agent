@@ -1,0 +1,13 @@
+<div id="chat-list" class="chat-list"{% if oob %} hx-swap-oob="true"{% endif %}>
+  {% if chats %}<div class="side-label">Recent chats</div>{% endif %}
+  {% for c in chats %}
+    <div class="chat-item{% if c.id == current_chat %} active{% endif %}">
+      <a href="/c/{{ c.id }}" title="{{ c.preview }}">{{ c.preview or "Untitled chat" }}</a>
+      <button type="button" class="icon-btn" title="Delete this chat" aria-label="Delete this chat"
+              hx-post="/c/{{ c.id }}/delete" hx-vals='{"csrf": "{{ csrf }}"}'
+              hx-confirm="Delete this chat and its messages for good?">✕</button>
+    </div>
+  {% else %}
+    <p class="side-empty">Your chats will appear here.</p>
+  {% endfor %}
+</div>

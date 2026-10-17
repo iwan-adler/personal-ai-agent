@@ -4,7 +4,8 @@
   {% if run.status == "AWAITING_APPROVAL" %}
     {% with p = run.pending %}{% include "_approval.html" %}{% endwith %}
   {% else %}
-    <div class="row assistant"><div class="avatar">K</div><div class="msg assistant status-{{ run.status|lower }}">{{ run.final_text }}</div></div>
+    <div class="row assistant"><div class="avatar">K</div><div class="msg assistant md status-{{ run.status|lower }}">{{ run.final_text|md }}</div></div>
+    {% if run.status == "DONE" %}{% include "_followups.html" %}{% endif %}
   {% endif %}
 {% endif %}
-{% with oob = true %}{% include "_message_box.html" %}{% endwith %}
+{% with oob = true %}{% include "_message_box.html" %}{% include "_chat_list.html" %}{% endwith %}

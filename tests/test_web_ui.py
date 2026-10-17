@@ -332,3 +332,29 @@ def test_app_js_never_builds_html_from_text():
     script = (Path(web_main.__file__).parents[1] / "web" / "static" / "app.js").read_text(encoding="utf-8")
     for sink in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function"):
         assert sink not in script, sink
+
+
+def test_answers_are_rendered_as_markdown_safely(make_server):
+    server = make_server([_reply("## Plan\n- **read** chapter 4\n<script>alert(1)</script>")])
+    body = server.chat("plan")[2]
+    assert "<h4>Plan</h4>" in body and "<strong>read</strong>" in body
+    assert "<script>alert" not in body and "&lt;script&gt;" in body
+    assert 'class="followups"' in body  # Explain more / Give an example / Test my understanding
+
+
+def test_chat_history_open_and_delete(make_server):
+    server = make_server([_reply("first answer"), _reply("second answer")])
+    server.chat("first question")
+    first = server.state.session_id
+    server.request("POST", "/new", body={"csrf": server.guard.csrf})
+    server.chat("second question")
+    page = server.request("GET", "/")[2]
+    assert f'href="/c/{first}"' in page and "first question" in page  # listed in the sidebar
+    status, headers, _ = server.request("GET", f"/c/{first}")
+    assert status == 303 and server.state.session_id == first
+    assert "first answer" in server.request("GET", "/")[2]
+    assert server.request("POST", f"/c/{first}/delete", body={"csrf": "wrong"})[0] == 403
+    status, headers, _ = server.request("POST", f"/c/{first}/delete", body={"csrf": server.guard.csrf})
+    assert status == 204 and headers["hx-redirect"] == "/"
+    assert server.state.session_id is None and f'href="/c/{first}"' not in server.request("GET", "/")[2]
+    assert server.request("POST", f"/c/{first}/delete", body={"csrf": server.guard.csrf})[0] == 404

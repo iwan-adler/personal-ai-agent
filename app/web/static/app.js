@@ -16,6 +16,40 @@
     if (log) log.scrollTop = log.scrollHeight;
   }
 
+  var toastTimer = null;
+  function toast(text, kind) {
+    var box = document.getElementById("toast");
+    if (!box) return;
+    box.textContent = text;
+    box.className = "toast show " + (kind || "ok");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { box.className = "toast"; }, 3200);
+  }
+  window.kodaToast = toast;
+
+  // Code blocks in answers get a copy button (added here: templates have no scripts).
+  function addCopyButtons(root) {
+    (root || document).querySelectorAll(".md .code").forEach(function (block) {
+      if (block.querySelector(".copy")) return;
+      var button = el("button", "copy", "Copy");
+      button.type = "button";
+      button.addEventListener("click", function () {
+        var code = block.querySelector("code");
+        navigator.clipboard.writeText(code ? code.textContent : "").then(function () {
+          button.textContent = "Copied";
+          setTimeout(function () { button.textContent = "Copy"; }, 1500);
+        }, function () { toast("Could not copy.", "error"); });
+      });
+      block.appendChild(button);
+    });
+  }
+
+  // Only the newest answer keeps its follow-up buttons.
+  function keepLastFollowups() {
+    var all = document.querySelectorAll("#log .followups");
+    for (var i = 0; i < all.length - 1; i++) all[i].remove();
+  }
+
   function hideWelcome() {
     var welcome = document.getElementById("welcome");
     if (welcome) welcome.classList.add("hidden");
@@ -70,6 +104,7 @@
   document.addEventListener("htmx:beforeRequest", function (e) {
     var form = e.detail.elt;
     if (form && form.id === "composer") {
+      document.querySelectorAll("#log .followups").forEach(function (n) { n.remove(); });
       var box = document.getElementById("message");
       showPending(box.value.trim());
       box.value = "";
@@ -80,10 +115,12 @@
   document.addEventListener("htmx:beforeSwap", function () { clearPending(); });
 
   document.addEventListener("htmx:afterSettle", function () {
-    hideWelcome();
+    if (document.querySelector("#log .msg")) hideWelcome();
+    keepLastFollowups();
+    addCopyButtons();
     scrollDown();
     var box = document.getElementById("message");
-    if (box) box.focus();
+    if (box && document.activeElement === document.body) box.focus();
   });
 
   // htmx does not show error responses: say what went wrong instead of doing nothing.
@@ -91,7 +128,9 @@
     clearPending();
     var xhr = e.detail.xhr;
     var detail = (xhr && xhr.responseText || "").slice(0, 300);
-    if (xhr && xhr.status === 403) {
+    if (!document.getElementById("log")) {
+      toast(detail || "Something went wrong.", "error");
+    } else if (xhr && xhr.status === 403) {
       showError("Koda did not accept this (" + detail + "). If Koda was restarted, close this window and open Koda again.");
     } else {
       showError("Something went wrong (" + (xhr ? xhr.status : "?") + "): " + detail);
@@ -100,6 +139,7 @@
 
   document.addEventListener("htmx:sendError", function () {
     clearPending();
+    if (!document.getElementById("log")) { toast("Koda is not reachable. Open Koda again from its icon.", "error"); return; }
     showError("Koda is not reachable. It may have been closed: open Koda again from its icon.");
   });
 
@@ -121,10 +161,16 @@
   });
 
   document.addEventListener("click", function (e) {
-    var chip = e.target.closest && e.target.closest(".chip");
+    var chip = e.target.closest && e.target.closest(".chip[data-prompt]");
     if (!chip) return;
-    var box = document.getElementById("message");
+    var box = document.getElementById(chip.getAttribute("data-target") || "message");
+    if (!box) return;
     box.value = chip.getAttribute("data-prompt") || "";
+    if (chip.classList.contains("send-now")) {
+      var form = box.form;
+      if (form && !form.querySelector("button[type=submit]").disabled) form.requestSubmit();
+      return;
+    }
     grow(box);
     box.focus();
     box.setSelectionRange(box.value.length, box.value.length);
@@ -136,6 +182,16 @@
       var value = Math.max(0, Math.min(100, parseInt(bar.getAttribute("data-fill"), 10) || 0));
       bar.style.width = value + "%";
     });
+    addCopyButtons();
+    keepLastFollowups();
     scrollDown();
+    var flash = document.body.getAttribute("data-flash");
+    if (flash) toast(flash, "ok");
+  });
+
+  // Server responses can ask for a toast with an HX-Trigger header: {"toast": "Saved."}
+  document.addEventListener("toast", function (e) {
+    var d = e.detail || {};
+    toast(d.value || d.message || "Done.", d.kind || "ok");
   });
 })();

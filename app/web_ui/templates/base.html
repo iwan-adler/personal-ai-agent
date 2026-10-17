@@ -17,14 +17,10 @@
     <div class="brand"><img src="/static/koda.png" alt="" width="32" height="32"><span>Koda</span></div>
     <nav>
       <a href="/" class="{% if page == 'chat' %}active{% endif %}"><span class="ico">💬</span>Chat</a>
+      <a href="/study" class="{% if page == 'study' %}active{% endif %}"><span class="ico">🎓</span>Study</a>
       <a href="/dashboard" class="{% if page == 'dashboard' %}active{% endif %}"><span class="ico">📊</span>Dashboard</a>
     </nav>
-    {% if page == 'chat' %}
-    <form hx-post="/new" class="new-chat">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button type="submit" class="ghost">＋ New chat</button>
-    </form>
-    {% endif %}
+    {% block sidebar_extra %}{% endblock %}
     <div class="sidebar-foot">
       <div class="status"><span class="dot"></span>Running on this computer</div>
       {% if model %}<div class="model">Model: {{ model }}</div>{% endif %}
@@ -34,5 +30,6 @@
     {% block content %}{% endblock %}
   </main>
 </div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 </body>
 </html>

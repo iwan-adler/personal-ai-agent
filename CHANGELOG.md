@@ -15,6 +15,10 @@ and their reasons are in [docs/architecture.md](docs/architecture.md).
   "Thinking…" timer, Enter to send, suggestions, "New chat", visible errors (before,
   a slow model or a refused request looked like nothing happened), and a redesigned
   dashboard. Light and dark theme. All text is still added as text, never as HTML.
+- Chat: answers rendered as Markdown (headings, lists, tables, code with a copy
+  button) by a small built-in renderer that escapes everything first; a sidebar list
+  of recent chats to reopen or delete; suggested prompts; follow-up buttons (Explain
+  more, Give an example, Test my understanding).
 - Local models (`OPENAI_BASE_URL` on 127.0.0.1 or localhost) get a 180 s default
   timeout instead of 60 s: on a CPU the first answer can take over a minute.
 
