@@ -67,6 +67,24 @@ data is the user's own, so it does not taint. Only `/forget-course` deletes, and
 it only clears links. A re-imported document keeps its course unless a new one is
 given.
 
+### Web access (V0.7, implements D6)
+
+`web_fetch` (SAFE, `web.read`, `reads_outside_content`) exists only with
+`WEB_ALLOWLIST`. The URL is checked during the safety review: https, port 443, no
+user:password, a host name (no IP literal) that is an allowlisted domain or a
+subdomain of one, compared normalised (lowercase, IDNA), so suffix tricks and
+look-alike letters do not match. `app/web/fetcher.py` then resolves the name and
+refuses it if **any** address is not public (loopback, private, link-local
+including 169.254.169.254, shared, reserved, multicast, IPv4-mapped IPv6), and
+connects to **exactly the checked address** while TLS still verifies the certificate
+against the host name, which closes DNS rebinding (and bypasses system proxies).
+Redirects are followed manually, at most 5, each hop checked again. No cookies,
+no compression (`Accept-Encoding: identity`), 2 MB, text types only. HTML becomes
+text with the standard `html.parser` (scripts and styles dropped) and only links
+that pass the same URL check are returned. For feeds, `parse_xml_safely` refuses
+any DOCTYPE or ENTITY declaration and non-ASCII-compatible encodings before the
+standard parser (expat 2.8, which itself refuses entity expansion) sees them.
+
 ### Planner (V0.7)
 
 `plan_week` (SAFE, `tasks.read`) and `/plan` show a plan computed by a **pure

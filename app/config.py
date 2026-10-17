@@ -29,6 +29,9 @@ from app.planner import parse_study_hours
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 MAX_GITHUB_REPOS = 20
+MAX_WEB_DOMAINS = 50
+# One DNS label: letters, digits, hyphens; not starting or ending with a hyphen.
+_DNS_LABEL = re.compile(r"(?!-)[a-z0-9-]{1,63}(?<!-)")
 # GitHub owners: letters, digits, hyphens (max 39). Repo names: letters, digits,
 # ".", "_", "-" (max 100), but not "." or "..". Checked on the lowercased value.
 _GITHUB_REPO = re.compile(r"[a-z0-9][a-z0-9-]{0,38}/(?!\.\.?$)[a-z0-9._-]{1,100}")
@@ -64,6 +67,35 @@ class Settings(BaseModel):
     workspace_dir: Path | None = None
     # Study hours per weekday, Monday first; None means the planner assumes a default.
     study_hours: tuple[float, float, float, float, float, float, float] | None = None
+    # Domains web_fetch may reach (subdomains included); empty means no web tools (D6).
+    web_allowlist: tuple[str, ...] = ()
+
+    @field_validator("web_allowlist", mode="before")
+    @classmethod
+    def _split_domains(cls, value: object) -> object:
+        if isinstance(value, str):
+            return tuple(part.strip() for part in value.split(",") if part.strip())
+        return value
+
+    @field_validator("web_allowlist")
+    @classmethod
+    def _domains_ok(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        domains: list[str] = []
+        for raw in value:
+            domain = raw.strip().rstrip(".").lower()
+            try:
+                domain = domain.encode("idna").decode("ascii")
+            except UnicodeError:
+                raise ValueError("WEB_ALLOWLIST entries must be domain names") from None
+            labels = domain.split(".")
+            if len(labels) < 2 or not all(_DNS_LABEL.fullmatch(label) for label in labels) \
+                    or labels[-1].isdigit():
+                raise ValueError("WEB_ALLOWLIST entries must be domain names like en.wikipedia.org")
+            if domain not in domains:
+                domains.append(domain)
+        if len(domains) > MAX_WEB_DOMAINS:
+            raise ValueError(f"WEB_ALLOWLIST may list at most {MAX_WEB_DOMAINS} domains")
+        return tuple(domains)
 
     @field_validator("study_hours", mode="before")
     @classmethod
@@ -239,6 +271,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
             max_history_messages=_int_env("MAX_HISTORY_MESSAGES", 20),
             workspace_dir=os.getenv("WORKSPACE_DIR"),
             study_hours=os.getenv("STUDY_HOURS", ""),
+            web_allowlist=os.getenv("WEB_ALLOWLIST", ""),
             # pop for the same reason as OPENAI_API_KEY above.
             github_token=os.environ.pop("GITHUB_TOKEN", ""),
             github_repos=os.getenv("GITHUB_REPOS", ""),

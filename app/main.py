@@ -28,6 +28,7 @@ from app.tools.base import ToolContext, ToolRegistry
 from app.tools.builtin import build_default_registry
 from app.tools.cards import register_card_tools
 from app.tools.planner import compute_plan, register_planner_tools
+from app.tools.web import register_web_tools
 from app.tools.courses import register_course_tools
 from app.tools.docs import register_doc_tools
 from app.tools.facts import register_fact_tools
@@ -383,6 +384,8 @@ def build_registry(settings: Settings, backup_dir: Path = DATA_DIR / "file-backu
     register_course_tools(registry)
     register_card_tools(registry)
     register_planner_tools(registry, settings.study_hours)
+    if settings.web_allowlist:
+        register_web_tools(registry, settings.web_allowlist)
     if settings.workspace_dir is not None:
         register_file_tools(registry, settings.workspace_dir)
         register_file_write_tools(registry, settings.workspace_dir, backup_dir)

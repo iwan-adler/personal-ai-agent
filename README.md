@@ -61,6 +61,7 @@ flowchart LR
   | `file_read` | SAFE | Read a text file inside `WORKSPACE_DIR`, up to 400 lines at a time, with its `sha256` |
   | `file_create` | CONFIRMATION | Create a **new** text file in an existing folder of `WORKSPACE_DIR`; the prompt shows the content |
   | `file_overwrite` | HIGH_RISK | Replace an **existing** file; the prompt shows a diff. Needs the `sha256` from `file_read`, so it only overwrites a file the agent has read and nobody has changed since. The old version is copied to `data/file-backups/` (last 20 kept) |
+  | `web_fetch` | SAFE | Read one https page from a domain on `WEB_ALLOWLIST`: its text, title and the links you could follow |
   | `github_issue_list` | SAFE | Issues and PRs of a repo in `GITHUB_REPOS`, most recently updated first |
   | `github_issue_read` | SAFE | One issue or PR with its comments (text capped) |
   | `github_pr_list` | SAFE | Pull requests of a repo in `GITHUB_REPOS`, with branches and draft status |
@@ -194,6 +195,7 @@ All settings live in `.env` ([`.env.example`](.env.example) documents each one).
 | `STUDY_HOURS` | *(empty)* | Study hours per weekday for the planner, e.g. `mon=2,tue=2,wed=3,thu=2,fri=1,sat=4,sun=0` (0–16 each, missing days are 0). Empty means 2 h every day, and the plan says so |
 | `MAX_HISTORY_MESSAGES` | `20` | Recent messages sent to the model each turn (4–200) |
 | `WORKSPACE_DIR` | *(empty)* | Absolute path of the only folder the file tools may read, e.g. `C:\Users\you\Documents\koda-workspace`. Empty means no file tools. Not allowed: a drive root, your home folder itself, or a folder containing this project |
+| `WEB_ALLOWLIST` | *(empty)* | Comma-separated domains `web_fetch` may read, subdomains included (max 50). **Never list shared hosting** such as `github.io` or `blogspot.com`, where anyone can create a subdomain. Empty means no web tools |
 | `GITHUB_REPOS` | *(empty)* | Comma-separated `owner/name` repos the GitHub tools may read (max 20). Empty means no GitHub tools |
 | `GITHUB_TOKEN` | *(empty)* | Optional. Without it, public repos work at 60 requests/hour. Recommended: a **fine-grained** token limited to those repos, with read-only *Metadata*, *Issues* and *Pull requests*. Removed from the environment once loaded, like the OpenAI key |
 | `GITHUB_WRITE_REPOS` | *(empty)* | Repos the agent may **publish** to; each must also be in `GITHUB_REPOS`. Empty means no write tools |
@@ -226,7 +228,7 @@ tail -n 20 data/audit.jsonl               # macOS / Linux
 python -m pytest
 ```
 
-There are 617 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
+There are 670 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
 
 - the agent loop: repair of malformed output, budgets, repeated-failure and repeated-call stops, the history window, and tool output that tries to break out of its `<tool_result>` block
 - the safety layer: every autonomy level, missing permissions, `HIGH_RISK` always confirming, Level 4 grants, duplicate writes
@@ -236,6 +238,7 @@ There are 617 tests (counting parametrised cases), which run in under a minute w
 - the task workflow end to end: request → confirmation → SQLite → audit, including declined confirmations, invalid dates, missing permissions, persistence across sessions, and audit-write failures (the tool must not run)
 - sessions and facts: tool results never saved, FTS5 syntax in search queries treated as plain text, saving facts always asks, deleting only by command, schema migrations keeping old data
 - files: Windows path tricks (`..`, drives, UNC, `file:stream`, `CON`, trailing dots, junctions, hard links) refused, overwrites only with the right checksum, backups, nothing half-written
+- the web: only https on allowlisted domains (look-alike and suffix tricks refused), no private, loopback or link-local addresses, DNS rebinding unable to move the connection, every redirect rechecked, size and type limits, scripts stripped, XML with DOCTYPE or ENTITY refused
 - GitHub: only allowlisted repos, redirects refused (tested with real local servers), tokens never leaking, secrets refused before any publish prompt, the full text shown before publishing
 - outside content: after reading a file or an issue, Level 4 grants are suspended, so injected text cannot drive a write
 - the planner: earliest deadline first with fixed dates, work stopping the day before a deadline, flashcard time reserved first, exact shortfalls in quarter hours, overdue and due-today warnings
@@ -264,6 +267,7 @@ tests/                 pytest suite
 
 - **CLI only**, for a single local user.
 - **Stored data is not encrypted.** Sessions and facts sit in `data/agent.db` in plain text.
+- **Web access is limited to `WEB_ALLOWLIST`** (D6), and it does not use system proxies, because connections are pinned to the checked IP address. There is no web search.
 - **Fact and document search are keyword-based** (SQLite FTS5): they find "DBMS exam" but not a paraphrase like "database test". Scanned PDFs (images without a text layer) yield no text. Local embeddings are planned only if this proves too weak (see D4 in the architecture doc).
 - **Small local models are unreliable at the JSON format.** The repair loop fixes malformed output, but it can't make weak answers better (see the example session).
 - **A tool timeout stops the agent waiting, but can't kill a stuck Python thread.** I/O tools must pass their own timeouts, as documented in `app/tools/base.py`.
