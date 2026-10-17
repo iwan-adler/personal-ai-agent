@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Koda · Timetable{% endblock %}
+{% block body_class %}scroll-page timetable-page{% endblock %}
+{% block content %}
+<header class="page-head">
+  <h1>Timetable</h1>
+  <p class="hint">Your weekly classes. Upload your timetable on the <a href="/materials">Materials</a> page and let Koda read it, or add classes here.</p>
+</header>
+<section class="card">
+  <h2>Add a class</h2>
+  <form class="inline-form add-class" hx-post="/timetable" hx-target="#week">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <select name="day" aria-label="Day" required>{% for d in days %}<option value="{{ loop.index0 }}">{{ d }}</option>{% endfor %}</select>
+    <input name="start" placeholder="09:00" maxlength="5" size="5" required aria-label="Start time" class="time">
+    <input name="end" placeholder="10:30" maxlength="5" size="5" required aria-label="End time" class="time">
+    <input name="title" placeholder="Class, e.g. DBMS lecture" maxlength="120" required aria-label="Class" class="grow">
+    <input name="room" placeholder="Room" maxlength="60" aria-label="Room" class="room">
+    <select name="course" aria-label="Course"><option value="">No course</option>{% for c in courses %}<option value="{{ c.id }}">{{ c.code }}</option>{% endfor %}</select>
+    <button type="submit" class="primary">Add</button>
+  </form>
+</section>
+<div id="week">
+  {% include "_timetable_week.html" %}
+</div>
+{% endblock %}

@@ -1,0 +1,40 @@
+{% if total %}
+<p class="hint">{{ total }} class{{ "es" if total != 1 }} · {{ "%g"|format(hours) }} h per week</p>
+<div class="tt-week">
+  {% for d in days %}
+  {% set day_index = loop.index0 %}
+  <div class="tt-day{% if day_index == today_index %} is-today{% endif %}">
+    <div class="tt-day-head">{{ d[:3] }}{% if day_index == today_index %} <span class="tag">today</span>{% endif %}</div>
+    {% for s in by_day[day_index] %}
+      <div class="tt-class">
+        <div class="tt-time">{{ s.start_time }}–{{ s.end_time }}</div>
+        <div class="tt-title">{{ s.title }}</div>
+        <div class="tt-meta">{% if s.course %}<span class="tag">{{ s.course }}</span>{% endif %}{% if s.room %}📍 {{ s.room }}{% endif %}</div>
+        <details class="task-edit">
+          <summary>Edit</summary>
+          <form class="tt-edit" hx-post="/timetable/{{ s.id }}/edit" hx-target="#week">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <select name="day" aria-label="Day">{% for dd in days %}<option value="{{ loop.index0 }}"{% if loop.index0 == s.weekday %} selected{% endif %}>{{ dd[:3] }}</option>{% endfor %}</select>
+            <input name="start" value="{{ s.start_time }}" maxlength="5" aria-label="Start time">
+            <input name="end" value="{{ s.end_time }}" maxlength="5" aria-label="End time">
+            <input name="title" value="{{ s.title }}" maxlength="120" aria-label="Class">
+            <input name="room" value="{{ s.room }}" maxlength="60" placeholder="Room" aria-label="Room">
+            <select name="course" aria-label="Course"><option value="">No course</option>{% for c in courses %}<option value="{{ c.id }}"{% if c.id == s.course_id %} selected{% endif %}>{{ c.code }}</option>{% endfor %}</select>
+            <div class="tt-edit-actions">
+              <button type="submit" class="primary small">Save</button>
+              <button type="button" class="small danger" hx-post="/timetable/{{ s.id }}/delete" hx-vals='{"csrf": "{{ csrf }}"}'
+                      hx-target="#week" hx-confirm="Remove this class?">Remove</button>
+            </div>
+          </form>
+        </details>
+      </div>
+    {% else %}
+      <div class="tt-free">Free</div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<section class="card"><div class="empty"><div class="empty-ico">🗓️</div>
+  <p>No classes yet. Upload your timetable on the <a href="/materials">Materials</a> page (category "Timetable") and click <strong>Read timetable</strong>, or add classes above.</p></div></section>
+{% endif %}

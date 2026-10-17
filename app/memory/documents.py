@@ -18,6 +18,7 @@ from app.memory.db import Database
 from app.memory.facts import fts_query
 
 ImportStatus = Literal["imported", "updated", "unchanged"]
+CATEGORIES: tuple[str, ...] = ("notes", "assignment", "timetable", "classwork", "other")
 
 
 class DocumentNotFound(LookupError):
@@ -42,7 +43,12 @@ class Document:
     imported_at: str
     chunk_count: int
     course_id: int | None = None
+    category: str = "notes"
     course: str | None = None  # the course code, for display
+
+    @property
+    def name(self) -> str:
+        return self.path.rsplit("/", 1)[-1]
 
 
 @dataclass(frozen=True)
@@ -91,17 +97,25 @@ class DocumentStore:
             if row is not None and course_id is None:
                 course_id = row["course_id"]
             if row is not None:
-                # Chunks first, so their FTS delete trigger runs for every row.
-                conn.execute("DELETE FROM chunks WHERE document_id = ?", (row["id"],))
-                conn.execute("DELETE FROM documents WHERE id = ?", (row["id"],))
-            cursor = conn.execute(
-                "INSERT INTO documents (path, kind, sha256, size_bytes, pages, imported_at, course_id)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (path, kind, sha256, size_bytes, pages, _now(), course_id),
-            )
+                # Updated in place, so the id (and the category and study-session
+                # links that point at it) stay. Chunks are deleted one by one so
+                # their FTS delete trigger runs for every row.
+                document_id = row["id"]
+                conn.execute("DELETE FROM chunks WHERE document_id = ?", (document_id,))
+                conn.execute(
+                    "UPDATE documents SET kind = ?, sha256 = ?, size_bytes = ?, pages = ?, imported_at = ?,"
+                    " course_id = ? WHERE id = ?",
+                    (kind, sha256, size_bytes, pages, _now(), course_id, document_id),
+                )
+            else:
+                document_id = conn.execute(
+                    "INSERT INTO documents (path, kind, sha256, size_bytes, pages, imported_at, course_id)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (path, kind, sha256, size_bytes, pages, _now(), course_id),
+                ).lastrowid
             conn.executemany(
                 "INSERT INTO chunks (document_id, seq, page, line, text) VALUES (?, ?, ?, ?, ?)",
-                [(cursor.lastrowid, seq, c.page, c.line, c.text) for seq, c in enumerate(chunks)],
+                [(document_id, seq, c.page, c.line, c.text) for seq, c in enumerate(chunks)],
             )
             return "updated" if row is not None else "imported"
 
@@ -138,6 +152,55 @@ class DocumentStore:
                 """
             ).fetchall()
         return [Document(**dict(row)) for row in rows]
+
+    def by_path(self, path: str) -> Document:
+        for document in self.list():
+            if document.path == path:
+                return document
+        raise DocumentNotFound(f"Document {path} not found.")
+
+    def set_category(self, document_id: int, category: str) -> None:
+        if category not in CATEGORIES:
+            raise ValueError("Unknown category.")
+        with self.db.connect() as conn:
+            if conn.execute("UPDATE documents SET category = ? WHERE id = ?", (category, document_id)).rowcount == 0:
+                raise DocumentNotFound(f"Document {document_id} not found.")
+
+    def set_course(self, document_id: int, course_id: int | None) -> None:
+        with self.db.connect() as conn:
+            if conn.execute("UPDATE documents SET course_id = ? WHERE id = ?", (course_id, document_id)).rowcount == 0:
+                raise DocumentNotFound(f"Document {document_id} not found.")
+
+    def chunks(self, document_id: int, limit: int = 10_000) -> list[Hit]:
+        """The document's chunks in reading order, as hits with citations."""
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT d.id AS document_id, d.path, c.page, c.line, c.text FROM chunks c"
+                " JOIN documents d ON d.id = c.document_id WHERE d.id = ? ORDER BY c.seq LIMIT ?",
+                (document_id, limit),
+            ).fetchall()
+        return [Hit(**dict(row)) for row in rows]
+
+    def search_in(self, query: str, document_ids: list[int], limit: int = 6) -> list[Hit]:
+        """Keyword search limited to some documents (a study session's files)."""
+        match = fts_query(query)
+        if match is None or not document_ids:
+            return []
+        marks = ",".join("?" for _ in document_ids)
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT d.id AS document_id, d.path, c.page, c.line, c.text
+                  FROM chunks_fts
+                  JOIN chunks c ON c.id = chunks_fts.rowid
+                  JOIN documents d ON d.id = c.document_id
+                 WHERE chunks_fts MATCH ? AND d.id IN ({marks})
+                 ORDER BY bm25(chunks_fts), c.id
+                 LIMIT ?
+                """,
+                (match, *document_ids, limit),
+            ).fetchall()
+        return [Hit(**dict(row)) for row in rows]
 
     def get(self, document_id: int) -> Document:
         for document in self.list():

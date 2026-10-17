@@ -161,6 +161,36 @@ class StudyStore:
             self._get(conn, session_id)
             conn.execute("DELETE FROM study_sessions WHERE id = ?", (session_id,))
 
+    def link_documents(self, session_id: int, document_ids: list[int]) -> None:
+        """The files this session teaches from (ids that no longer exist are skipped)."""
+        with self.db.connect() as conn:
+            self._get(conn, session_id)
+            for document_id in dict.fromkeys(document_ids):
+                if conn.execute("SELECT 1 FROM documents WHERE id = ?", (document_id,)).fetchone():
+                    conn.execute("INSERT OR IGNORE INTO study_session_documents (session_id, document_id)"
+                                 " VALUES (?, ?)", (session_id, document_id))
+
+    def document_ids(self, session_id: int) -> list[int]:
+        with self.db.connect() as conn:
+            rows = conn.execute("SELECT document_id FROM study_session_documents WHERE session_id = ?"
+                                " ORDER BY document_id", (session_id,)).fetchall()
+        return [row["document_id"] for row in rows]
+
+    def tutor_turns(self, session_id: int) -> int:
+        with self.db.connect() as conn:
+            return conn.execute("SELECT COUNT(*) FROM study_messages WHERE session_id = ? AND role = 'tutor'",
+                                (session_id,)).fetchone()[0]
+
+    def history_for(self, subject: str, exclude_id: int | None = None, limit: int = 8) -> list[StudySession]:
+        """Your earlier sessions in a subject (case-insensitive), most recent first."""
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM study_sessions WHERE lower(subject) = lower(?) AND id != ?"
+                " ORDER BY last_active_at DESC LIMIT ?",
+                (subject, exclude_id or -1, limit),
+            ).fetchall()
+        return [StudySession(**dict(row)) for row in rows]
+
     def seconds_since(self, since: datetime) -> int:
         """Study time in sessions active since a moment (e.g. today, this week)."""
         with self.db.connect() as conn:

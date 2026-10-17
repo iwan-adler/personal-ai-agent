@@ -137,6 +137,9 @@ def dashboard_context(state: ChatState, today: date | None = None, now: datetime
         "recent_study": state.study.recent(3) if state.study else [],
         "hours": list(zip(WEEKDAYS, state.current_study_hours() or (DEFAULT_HOURS,) * 7)),
         "hours_source": state.study_hours_source(),
+        "classes_today": state.timetable.day(today.weekday()) if state.timetable else [],
+        "has_timetable": bool(state.timetable.week()) if state.timetable else False,
+        "now_time": now.strftime("%H:%M"),
         "env_hours": state.study_hours is not None,
         "hours_total": sum(state.current_study_hours() or (DEFAULT_HOURS,) * 7),
     }

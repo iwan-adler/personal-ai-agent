@@ -1,0 +1,35 @@
+<section class="card review-card" id="review-card">
+  <div class="card-head">
+    <h2>🗓️ Classes found in {{ document.name }}</h2>
+    <button type="button" class="icon-btn visible" data-close="#review-card" aria-label="Close">✕</button>
+  </div>
+  {% if rows %}
+    <p class="hint">Check each class (day, times, name, room), fix anything that is wrong, untick what you don't want, then save. Nothing is saved until you click <strong>Save</strong>.</p>
+    <form hx-post="/timetable/confirm" hx-target="#review" hx-disabled-elt="find button[type=submit]">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="review-rows">
+      {% for c, guess in rows %}
+        <div class="review-row">
+          <input type="checkbox" name="pick_{{ loop.index0 }}" value="1" checked aria-label="Save this class">
+          <select name="day_{{ loop.index0 }}" aria-label="Day">{% for d in days %}<option value="{{ loop.index0 }}"{% if loop.index0 == c.weekday %} selected{% endif %}>{{ d[:3] }}</option>{% endfor %}</select>
+          <input name="start_{{ loop.index0 }}" value="{{ c.start }}" maxlength="5" size="5" aria-label="Start time" class="time">
+          <input name="end_{{ loop.index0 }}" value="{{ c.end }}" maxlength="5" size="5" aria-label="End time" class="time">
+          <input name="title_{{ loop.index0 }}" value="{{ c.title }}" maxlength="120" aria-label="Class" class="grow">
+          <input name="room_{{ loop.index0 }}" value="{{ c.room }}" maxlength="60" placeholder="Room" aria-label="Room" class="room">
+          <select name="course_{{ loop.index0 }}" aria-label="Course">
+            <option value="">No course</option>
+            {% for co in courses %}<option value="{{ co.id }}"{% if co.id == guess %} selected{% endif %}>{{ co.code }}</option>{% endfor %}
+          </select>
+        </div>
+      {% endfor %}
+      </div>
+      {% if proposal.skipped %}<p class="hint small">{{ proposal.skipped }} entr{{ "ies" if proposal.skipped != 1 else "y" }} could not be used (missing day or times).</p>{% endif %}
+      {% if existing %}
+        <label class="check-label"><input type="checkbox" name="replace" value="1" checked> Replace my current timetable ({{ existing }} class{{ "es" if existing != 1 }})</label>
+      {% endif %}
+      <button type="submit" class="primary">Save timetable</button>
+    </form>
+  {% else %}
+    <p>Koda found no classes in this file. Is it really a timetable? You can also add classes by hand on the <a href="/timetable">Timetable</a> page.</p>
+  {% endif %}
+</section>

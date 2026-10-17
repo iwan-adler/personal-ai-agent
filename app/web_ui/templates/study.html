@@ -12,11 +12,11 @@
     <form class="form" hx-post="/study/start" hx-disabled-elt="find button[type=submit]" data-busy="Preparing your session…">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <label>Subject
-        <input name="subject" list="course-list" maxlength="80" required placeholder="e.g. DBMS, Physics, Python" autocomplete="off">
+        <input name="subject" list="course-list" maxlength="80" required placeholder="e.g. DBMS, Physics, Python" autocomplete="off" value="{{ prefill.subject or '' }}">
       </label>
       <datalist id="course-list">{% for c in courses %}<option value="{{ c.code }}">{{ c.name }}</option>{% endfor %}</datalist>
       <label>Topic
-        <input name="topic" maxlength="200" required placeholder="e.g. SQL joins, Newton's laws, recursion" autocomplete="off">
+        <input name="topic" maxlength="200" required placeholder="e.g. SQL joins, Newton's laws, recursion" autocomplete="off" value="{{ prefill.topic or '' }}">
       </label>
       <fieldset>
         <legend>Difficulty</legend>
@@ -34,6 +34,20 @@
           {% endfor %}
         </div>
         <p class="hint small">Learn: step by step · Revise: recap and recall · Practice: exercises · Quiz: questions only</p>
+      </fieldset>
+      <fieldset>
+        <legend>Teach from my files <span class="hint">(optional)</span></legend>
+        {% if documents %}
+          <div class="doc-picker">
+            {% for d in documents %}
+              <label class="doc-option"><input type="checkbox" name="documents" value="{{ d.id }}"{% if d.id == chosen %} checked{% endif %}>
+                <span>{{ d.name }}</span>{% if d.course %}<span class="tag">{{ d.course }}</span>{% endif %}</label>
+            {% endfor %}
+          </div>
+          <p class="hint small">Koda teaches from the ticked files and cites their pages.</p>
+        {% else %}
+          <p class="hint small">Upload lecture notes on the <a href="/materials">Materials</a> page and Koda can teach from them.</p>
+        {% endif %}
       </fieldset>
       <label><span>Learning goal <span class="hint">(optional)</span></span>
         <input name="goal" maxlength="300" placeholder="e.g. Be ready for Friday's exam" autocomplete="off">

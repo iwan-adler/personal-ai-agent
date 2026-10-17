@@ -109,6 +109,12 @@
       showPending(form.getAttribute("data-echo"));
       return;
     }
+    if (form && form.getAttribute && form.getAttribute("data-busy-label")) {
+      form.setAttribute("data-label", form.textContent);
+      form.textContent = form.getAttribute("data-busy-label");
+      form.disabled = true;
+      return;
+    }
     if (form && form.getAttribute && form.getAttribute("data-busy")) {
       var submit = form.querySelector("button[type=submit]");
       if (submit) { submit.setAttribute("data-label", submit.textContent); submit.textContent = form.getAttribute("data-busy"); }
@@ -125,7 +131,10 @@
 
   document.addEventListener("htmx:beforeSwap", function () { clearPending(); });
 
-  document.addEventListener("htmx:afterSettle", function () {
+  document.addEventListener("htmx:afterSettle", function (e) {
+    if (e.detail && e.detail.target && e.detail.target.id === "review") {
+      e.detail.target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
     if (document.querySelector("#log .msg")) hideWelcome();
     applySizes();
     keepLastFollowups();
@@ -157,11 +166,61 @@
 
   document.addEventListener("htmx:afterRequest", function (e) {
     if (e.detail.failed) clearPending();
-    var form = e.detail.elt;
-    if (e.detail.failed && form && form.querySelector) {
-      var submit = form.querySelector("button[type=submit][data-label]");
+    var elt = e.detail.elt;
+    if (elt && elt.getAttribute && elt.getAttribute("data-busy-label") && elt.getAttribute("data-label")) {
+      elt.textContent = elt.getAttribute("data-label");
+      elt.disabled = false;
+    }
+    if (elt && elt.querySelector) {
+      var submit = elt.querySelector("button[type=submit][data-label]");
       if (submit) submit.textContent = submit.getAttribute("data-label");
     }
+    if (elt && elt.id === "upload-form") {
+      var bar = document.getElementById("upload-progress");
+      if (bar) bar.hidden = true;
+      if (e.detail.successful) {
+        elt.reset();
+        var names = document.getElementById("file-names");
+        if (names) names.textContent = names.getAttribute("data-default") || names.textContent;
+      }
+    }
+  });
+
+  // Uploads: show a progress bar while the files are sent.
+  document.addEventListener("htmx:xhr:progress", function (e) {
+    if (!e.detail.lengthComputable || !e.target || e.target.id !== "upload-form") return;
+    var bar = document.getElementById("upload-progress");
+    if (!bar) return;
+    bar.hidden = false;
+    bar.querySelector("span").style.width = Math.round(100 * e.detail.loaded / e.detail.total) + "%";
+  });
+
+  // The drop zone: highlight while dragging, list the chosen files.
+  document.addEventListener("dragover", function (e) {
+    var zone = e.target.closest && e.target.closest("#dropzone");
+    if (zone) zone.classList.add("dragging");
+  });
+  ["dragleave", "drop"].forEach(function (type) {
+    document.addEventListener(type, function (e) {
+      var zone = e.target.closest && e.target.closest("#dropzone");
+      if (zone) zone.classList.remove("dragging");
+    });
+  });
+  document.addEventListener("change", function (e) {
+    if (!e.target || e.target.id !== "file-input") return;
+    var names = document.getElementById("file-names");
+    if (!names) return;
+    if (!names.getAttribute("data-default")) names.setAttribute("data-default", names.textContent);
+    var files = Array.prototype.map.call(e.target.files, function (f) { return f.name; });
+    names.textContent = files.length ? files.join(", ") : names.getAttribute("data-default");
+  });
+
+  // Close buttons on review panels.
+  document.addEventListener("click", function (e) {
+    var close = e.target.closest && e.target.closest("[data-close]");
+    if (!close) return;
+    var panel = document.querySelector(close.getAttribute("data-close"));
+    if (panel) panel.remove();
   });
 
   // Score ring and bars: sizes come from data attributes (no inline styles under the CSP).

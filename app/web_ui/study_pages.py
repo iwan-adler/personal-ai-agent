@@ -20,6 +20,7 @@ from app.tutor import ACTIONS, Tutor, take_turn
 MAX_SUBJECT = 80
 MAX_TOPIC = 200
 MAX_GOAL = 300
+MAX_LINKED_DOCUMENTS = 20
 
 
 def add_study_routes(app: FastAPI, *, state: ChatState, tutor: Tutor, render: Callable[..., HTMLResponse],
@@ -31,15 +32,28 @@ def add_study_routes(app: FastAPI, *, state: ChatState, tutor: Tutor, render: Ca
         return [s.course for s in state.courses.list()] if state.courses else []
 
     @app.get("/study", response_class=HTMLResponse)
-    def study_home(request: Request):
+    def study_home(request: Request, document: int | None = None):
+        documents = state.docs.list() if state.docs else []
+        chosen = next((d for d in documents if d.id == document), None)
+        prefill = {}
+        if chosen is not None:  # "Study this" on the Materials page
+            stem = chosen.name.rsplit(".", 1)[0].replace("_", " ").strip()
+            prefill = {"subject": chosen.course or "", "topic": stem[:MAX_TOPIC]}
         return render(request, "study.html", page="study", sessions=study.recent(30), courses=courses(),
-                      difficulties=DIFFICULTIES, modes=MODES)
+                      difficulties=DIFFICULTIES, modes=MODES, documents=documents,
+                      chosen=chosen.id if chosen else None, prefill=prefill)
 
     @app.post("/study/start")
-    def study_start(subject: str = Form(""), topic: str = Form(""), difficulty: str = Form("beginner"),
-                    goal: str = Form(""), mode: str = Form("learn"), csrf: str = Form("")):
-        if not csrf_ok(csrf):
+    async def study_start(request: Request):
+        form = await request.form(max_fields=MAX_LINKED_DOCUMENTS + 10)
+        if not csrf_ok(str(form.get("csrf", ""))):
             return plain(403, "Missing or wrong CSRF value.")
+        subject, topic, goal = (str(form.get(k, "")) for k in ("subject", "topic", "goal"))
+        difficulty, mode = str(form.get("difficulty", "beginner")), str(form.get("mode", "learn"))
+        try:
+            document_ids = [int(v) for v in form.getlist("documents")][:MAX_LINKED_DOCUMENTS]
+        except ValueError:
+            return plain(400, "Unknown file.")
         subject, topic, goal = subject.strip(), topic.strip(), goal.strip()
         if not subject or not topic:
             return plain(400, "Choose a subject and a topic.")
@@ -54,9 +68,10 @@ def add_study_routes(app: FastAPI, *, state: ChatState, tutor: Tutor, render: Ca
             except (CourseNotFound, ValueError):
                 course_id = None
         session = study.start(subject, topic, difficulty, goal, mode, course_id)
+        study.link_documents(session.id, document_ids)
         state.audit_event("study_start", session.id)
         try:
-            take_turn(study, tutor, session.id, "start")
+            take_turn(study, tutor, session.id, "start", docs=state.docs)
         except LLMError:
             pass  # the session page offers "Start" again
         return secure(Response(status_code=204, headers={"HX-Redirect": f"/study/{session.id}"}))
@@ -67,7 +82,8 @@ def add_study_routes(app: FastAPI, *, state: ChatState, tutor: Tutor, render: Ca
             session = study.get(session_id)
         except StudyNotFound:
             return plain(404, "That study session no longer exists.")
-        return render(request, "study_session.html", page="study", s=session,
+        linked = [d for d in (state.docs.list() if state.docs else []) if d.id in set(study.document_ids(session_id))]
+        return render(request, "study_session.html", page="study", s=session, linked=linked,
                       messages=study.messages(session_id), modes=MODES)
 
     @app.post("/study/{session_id}/turn", response_class=HTMLResponse)
@@ -78,7 +94,8 @@ def add_study_routes(app: FastAPI, *, state: ChatState, tutor: Tutor, render: Ca
         if action not in ACTIONS or (action == "mode" and mode not in MODES):
             return plain(400, "Unknown action.")
         try:
-            turn, session = take_turn(study, tutor, session_id, action, text, new_mode=mode or None)
+            turn, session = take_turn(study, tutor, session_id, action, text, new_mode=mode or None,
+                                      docs=state.docs)
         except StudyNotFound:
             return plain(404, "That study session no longer exists.")
         except ValueError as exc:

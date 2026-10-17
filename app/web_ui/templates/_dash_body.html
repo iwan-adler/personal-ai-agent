@@ -66,6 +66,21 @@
 
   <div class="dash-side">
     <section class="card">
+      <div class="card-head"><h2>Today's classes</h2><a href="/timetable" class="hint small">Timetable</a></div>
+      {% if classes_today %}
+        <ul class="today-classes">
+        {% for s in classes_today %}
+          <li class="{% if s.end_time <= now_time %}past{% endif %}"><span class="tt-time">{{ s.start_time }}–{{ s.end_time }}</span>
+            <span>{% if s.course %}<span class="tag">{{ s.course }}</span>{% endif %}{{ s.title }}{% if s.room %} <span class="hint small">· {{ s.room }}</span>{% endif %}</span></li>
+        {% endfor %}
+        </ul>
+      {% elif has_timetable %}
+        <p class="hint">No classes today.</p>
+      {% else %}
+        <p class="hint">Upload your timetable on the <a href="/materials">Materials</a> page and Koda shows today's classes here.</p>
+      {% endif %}
+    </section>
+    <section class="card">
       <h2>Subject progress</h2>
       {% if subjects %}
         <ul class="subjects">

@@ -196,6 +196,28 @@ MIGRATIONS: list[str] = [
         value TEXT NOT NULL
     );
     """,
+    # 10: your materials. A category for each document (what the file is, for the
+    # Materials page), the weekly class timetable, and which files a study session
+    # teaches from. Timetable rows are only ever saved after you confirm them.
+    """
+    ALTER TABLE documents ADD COLUMN category TEXT NOT NULL DEFAULT 'notes'
+        CHECK (category IN ('notes', 'assignment', 'timetable', 'classwork', 'other'));
+    CREATE TABLE timetable (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        weekday     INTEGER NOT NULL CHECK (weekday BETWEEN 0 AND 6),   -- 0 = Monday
+        start_time  TEXT NOT NULL CHECK (start_time GLOB '[0-2][0-9]:[0-5][0-9]'),
+        end_time    TEXT NOT NULL CHECK (end_time GLOB '[0-2][0-9]:[0-5][0-9]' AND end_time > start_time),
+        title       TEXT NOT NULL,
+        room        TEXT NOT NULL DEFAULT '',
+        course_id   INTEGER REFERENCES courses(id) ON DELETE SET NULL
+    );
+    CREATE INDEX timetable_by_day ON timetable (weekday, start_time);
+    CREATE TABLE study_session_documents (
+        session_id  INTEGER NOT NULL REFERENCES study_sessions(id) ON DELETE CASCADE,
+        document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+        PRIMARY KEY (session_id, document_id)
+    );
+    """,
 ]
 
 

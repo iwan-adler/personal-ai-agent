@@ -3,6 +3,22 @@
 Koda is built in milestones, each gated on the previous one. Design decisions D1–D7
 and their reasons are in [docs/architecture.md](docs/architecture.md).
 
+## Unreleased
+
+- **Materials** (`/materials`): upload PDF, Word (.docx), PowerPoint (.pptx), .txt and .md
+  files by drag and drop, sorted by course and type. Word and PowerPoint files are read
+  in an isolated process like PDFs, with zip-bomb and XML-entity guards.
+- **Find deadlines** and **Read timetable**: the model reads a file and proposes tasks or
+  classes; Python validates every value and you edit and confirm the list before
+  anything is saved.
+- **Timetable** (`/timetable`): your weekly classes, editable, with today's classes on the
+  dashboard.
+- **Personalized lessons**: Study Mode can teach from your files (excerpts with page
+  citations; "Study this" walks through one file) and knows your earlier results in the
+  subject, revisiting weak areas.
+- Migration 10: document categories, the timetable, and study-session files. A changed
+  document is now updated in place, so its category and links survive a re-import.
+
 ## 1.1.0 (2026-10-17)
 
 Koda becomes an interactive study partner in its own window.

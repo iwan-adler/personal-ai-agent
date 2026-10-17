@@ -1,0 +1,59 @@
+{% if results %}
+<section class="card upload-results">
+  <h2>Upload</h2>
+  <ul class="list">
+  {% for name, status, error in results %}
+    <li>{% if error %}<span class="bad">✕</span> <strong>{{ name }}</strong>: {{ error }}
+        {% else %}<span class="good">✓</span> <strong>{{ name }}</strong> {{ {"imported": "added", "updated": "updated", "unchanged": "was already there"}[status] }}{% endif %}</li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if not count %}
+  <section class="card"><div class="empty"><div class="empty-ico">📚</div><p>No materials yet. Upload your first file above.</p></div></section>
+{% else %}
+  {% for category, docs in groups.items() if docs %}
+  <section class="card material-group">
+    <h2>{{ labels[category] }} <span class="hint">({{ docs|length }})</span></h2>
+    <ul class="materials">
+    {% for d in docs %}
+      <li class="material">
+        <div class="file-ico">{{ {"pdf": "📕", "docx": "📘", "pptx": "📙", "txt": "📄", "md": "📝"}.get(d.name.rsplit(".", 1)[-1].lower(), "📄") }}</div>
+        <div class="material-main">
+          <div class="material-name" title="{{ d.path }}">{{ d.name }}</div>
+          <div class="task-meta">
+            {% if d.course %}<span class="tag">{{ d.course }}</span>{% endif %}
+            <span>{% if d.pages %}{{ d.pages }} page{{ "s" if d.pages != 1 }}{% else %}{{ d.chunk_count }} part{{ "s" if d.chunk_count != 1 }}{% endif %}</span>
+            <span>{{ [1, (d.size_bytes / 1024)|round(0)|int]|max }} KB</span>
+          </div>
+          <details class="task-edit">
+            <summary>Edit</summary>
+            <form class="inline-form" hx-post="/materials/{{ d.id }}/edit" hx-target="#materials-list">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <select name="category" aria-label="Category">{% for c in labels %}<option value="{{ c }}"{% if c == d.category %} selected{% endif %}>{{ labels[c] }}</option>{% endfor %}</select>
+              <select name="course" aria-label="Course"><option value="">No course</option>{% for c in courses %}<option value="{{ c.id }}"{% if c.id == d.course_id %} selected{% endif %}>{{ c.code }}</option>{% endfor %}</select>
+              <button type="submit" class="primary">Save</button>
+            </form>
+          </details>
+        </div>
+        <div class="material-actions">
+          <a class="button small" href="/study?document={{ d.id }}">🎓 Study this</a>
+          {% if d.category in ("assignment", "classwork", "notes", "other") %}
+            <button type="button" class="small" hx-post="/materials/{{ d.id }}/deadlines" hx-vals='{"csrf": "{{ csrf }}"}'
+                    hx-target="#review" data-busy-label="Reading…">📅 Find deadlines</button>
+          {% endif %}
+          {% if d.category == "timetable" %}
+            <button type="button" class="small" hx-post="/materials/{{ d.id }}/timetable" hx-vals='{"csrf": "{{ csrf }}"}'
+                    hx-target="#review" data-busy-label="Reading…">🗓️ Read timetable</button>
+          {% endif %}
+          <button type="button" class="icon-btn" title="Remove" aria-label="Remove {{ d.name }}"
+                  hx-post="/materials/{{ d.id }}/remove" hx-vals='{"csrf": "{{ csrf }}"}' hx-target="#materials-list"
+                  hx-confirm="Remove {{ d.name }} from Koda and delete the file from your library folder?">🗑</button>
+        </div>
+      </li>
+    {% endfor %}
+    </ul>
+  </section>
+  {% endfor %}
+{% endif %}

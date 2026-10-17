@@ -1,0 +1,32 @@
+<section class="card review-card" id="review-card">
+  <div class="card-head">
+    <h2>📅 Deadlines found in {{ document.name }}</h2>
+    <button type="button" class="icon-btn visible" data-close="#review-card" aria-label="Close">✕</button>
+  </div>
+  {% if proposal.items %}
+    <p class="hint">Koda read the file and suggests these tasks. Check the dates, change anything, untick what you don't want, then add them. Nothing is saved until you click <strong>Add</strong>.</p>
+    <form hx-post="/materials/tasks/confirm" hx-target="#review" hx-disabled-elt="find button[type=submit]">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="review-rows">
+      {% for t in proposal.items %}
+        <div class="review-row">
+          <input type="checkbox" name="pick_{{ loop.index0 }}" value="1" checked aria-label="Add this task">
+          <input name="title_{{ loop.index0 }}" value="{{ t.title }}" maxlength="200" aria-label="Title" class="grow">
+          <input type="date" name="due_{{ loop.index0 }}" value="{{ t.due_date.isoformat() if t.due_date else '' }}" aria-label="Due date"
+                 class="{% if t.due_date and t.due_date < today %}late-input{% endif %}">
+          <select name="course_{{ loop.index0 }}" aria-label="Course">
+            <option value="">No course</option>
+            {% for c in courses %}<option value="{{ c.id }}"{% if c.id == document.course_id %} selected{% endif %}>{{ c.code }}</option>{% endfor %}
+          </select>
+          <input type="number" name="estimate_{{ loop.index0 }}" value="{{ '%g'|format(t.estimate_hours) if t.estimate_hours else '' }}" min="0.25" max="200" step="0.25" placeholder="Hours" aria-label="Estimate in hours">
+          {% if t.note %}<div class="review-note hint small">{{ t.note }}</div>{% endif %}
+        </div>
+      {% endfor %}
+      </div>
+      {% if proposal.skipped %}<p class="hint small">{{ proposal.skipped }} suggestion{{ "s" if proposal.skipped != 1 }} could not be used (missing or invalid values).</p>{% endif %}
+      <button type="submit" class="primary">Add ticked tasks</button>
+    </form>
+  {% else %}
+    <p>Koda found no tasks or deadlines in this file.</p>
+  {% endif %}
+</section>

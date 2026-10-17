@@ -26,6 +26,7 @@ from app.memory.facts import FactNotFound, FactStore
 from app.memory.opportunities import OpportunityNotFound, OpportunityStore
 from app.memory.sessions import SessionNotFound, SessionStore
 from app.memory.study import Preferences, StudyStore
+from app.memory.timetable import TimetableStore
 from app.memory.tasks import TaskStore
 from app.planner import format_plan
 from app.safety.permissions import DEFAULT_GRANTS, SafetyLayer
@@ -94,6 +95,8 @@ class ChatState:
     opportunities: OpportunityStore | None = None
     study: StudyStore | None = None
     prefs: Preferences | None = None
+    timetable: TimetableStore | None = None
+    workspace: Path | None = None  # WORKSPACE_DIR, where uploaded materials are saved
     conversation: Conversation = field(default_factory=Conversation)
     # Created on the first saved turn, so launching and quitting leaves no empty session.
     session_id: int | None = None
@@ -501,7 +504,8 @@ def build_agent(
     )
     state = ChatState(sessions=sessions, audit=audit, facts=facts, docs=docs, courses=courses,
                       cards=cards, tasks=task_store, study_hours=settings.study_hours,
-                      opportunities=opportunities, study=StudyStore(db), prefs=prefs)
+                      opportunities=opportunities, study=StudyStore(db), prefs=prefs,
+                      timetable=TimetableStore(db), workspace=settings.workspace_dir)
     return agent, state
 
 

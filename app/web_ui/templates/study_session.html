@@ -12,6 +12,7 @@
         <div class="crumbs"><span class="tag">{{ s.subject }}</span> {{ s.difficulty|capitalize }}</div>
         <h1>{{ s.topic }}</h1>
         {% if s.goal %}<p class="hint">Goal: {{ s.goal }}</p>{% endif %}
+        {% if linked %}<p class="hint small linked">📎 Teaching from: {% for d in linked %}<span class="file-chip">{{ d.name }}</span>{% endfor %}</p>{% endif %}
       </div>
       {% include "_study_modes.html" %}
     </header>

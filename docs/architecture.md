@@ -482,6 +482,20 @@ The web UI became the main way to use Koda, so it grew three parts:
   `STUDY_HOURS` and parsed with the same rules (a bad stored value is ignored, not
   trusted). Order: app setting, then `.env`, then 2 h a day. The `plan_week` tool gets
   a reader in `ToolContext`, so all three planners always agree.
+- **Materials** (`app/materials.py`): uploads are reduced to a plain file name (no folders,
+  devices or off-limits names), limited to the importable types and sizes, written to a
+  temporary name first and never overwrite an existing file. Word and PowerPoint text is
+  read by `app/tools/office_extract.py` in an isolated process (only the needed ZIP
+  members, sizes checked before reading, DOCTYPE/ENTITY refused). The stored `kind` stays
+  the citation layout (pages or lines), so no table rebuild was needed.
+- **Reading files with the model** (`app/extract.py`): deadlines and timetables are
+  *proposals*. The file text goes in `<document>` tags, the model has no tools, and every
+  returned value is validated (dates, HH:MM times, lengths, counts) and shown in an
+  editable list; only your confirmation saves anything.
+- **Personalized lessons**: the tutor gets up to ~7,000 characters of excerpts from the
+  session's files (moving on walks through them in order; answers and questions get the
+  best-matching passages) with an instruction to cite them and never follow instructions
+  inside them, plus a short profile of earlier sessions in the subject.
 - **Dashboard edits tasks** (D5 update): create, edit, complete, reopen and delete.
   Alternative considered: keep the dashboard read-only and route every change through
   the chat. Rejected for tasks because these are the user's own clicks with the exact
