@@ -67,6 +67,11 @@ flowchart LR
   | `doc_import` | CONFIRMATION | Import `.md`, `.txt` and `.pdf` files from `library/` in your workspace into the document library (unchanged files are skipped) |
   | `doc_search` | SAFE | Keyword search in your documents; every hit comes with a citation such as `lecture3.pdf, p. 12` |
   | `doc_list` | SAFE | The documents in your library |
+  | `course_list` | SAFE | Your courses with open tasks, documents, facts and the next deadline |
+  | `course_add` | CONFIRMATION | Add a course with a short code (`DBMS`), a name and an optional semester |
+  | `course_update` | CONFIRMATION | Change a course's name or semester; the prompt shows old and new |
+
+  `task_add`, `fact_save` and `doc_import` take an optional `course` to link the new item; `task_list`, `fact_search` and `doc_search` take one to filter. Exams are tasks linked to their course, so every deadline lives in one place.
 
   PDFs are parsed in a **separate process** (isolated, without your keys, killed after 60 s), because crafted PDFs can make parsers hang. Limits: 50 MB and 1,000 pages per PDF, 5 MB per text file. Encrypted PDFs are refused. OneNote notebooks can't be read directly: export them as PDF or Markdown into `library/`.
 
@@ -157,6 +162,8 @@ Commands (handled by the CLI, never sent to the model):
 | `/forget-session <id>` | Delete a session and its messages permanently (asks first) |
 | `/facts [topic]` | List what the agent remembers about you |
 | `/forget-fact <id>` | Delete a remembered fact permanently (asks first) |
+| `/courses` | List your courses with counts and the next deadline |
+| `/forget-course <code>` | Delete a course; its tasks, facts and documents stay, unlinked (asks first) |
 | `/docs` | List the documents in your library |
 | `/forget-doc <id>` | Remove a document from the library; the file itself stays (asks first) |
 | `/help` | Show the list |
@@ -210,7 +217,7 @@ tail -n 20 data/audit.jsonl               # macOS / Linux
 python -m pytest
 ```
 
-There are 541 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
+There are 562 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
 
 - the agent loop: repair of malformed output, budgets, repeated-failure and repeated-call stops, the history window, and tool output that tries to break out of its `<tool_result>` block
 - the safety layer: every autonomy level, missing permissions, `HIGH_RISK` always confirming, Level 4 grants, duplicate writes
@@ -222,6 +229,7 @@ There are 541 tests (counting parametrised cases), which run in under a minute w
 - files: Windows path tricks (`..`, drives, UNC, `file:stream`, `CON`, trailing dots, junctions, hard links) refused, overwrites only with the right checksum, backups, nothing half-written
 - GitHub: only allowlisted repos, redirects refused (tested with real local servers), tokens never leaking, secrets refused before any publish prompt, the full text shown before publishing
 - outside content: after reading a file or an issue, Level 4 grants are suspended, so injected text cannot drive a write
+- courses: upgrading a database with existing tasks, facts and documents, case-insensitive unique codes, linking and filtering, deleting a course without losing what was linked to it
 - documents: PDFs (built inside the tests) parsed only in an isolated child process, a hanging parser killed, encrypted and broken PDFs refused, citations with page and line numbers, junctions and hard links in `library/` ignored
 
 ## Project structure

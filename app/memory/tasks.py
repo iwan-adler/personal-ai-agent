@@ -33,6 +33,12 @@ class Task:
     status: str
     created_at: str
     completed_at: str | None
+    course_id: int | None = None
+    course: str | None = None  # the course code, for display
+
+
+# Tasks with their course code; every read goes through this.
+_SELECT = "SELECT t.*, c.code AS course FROM tasks t LEFT JOIN courses c ON c.id = t.course_id"
 
 
 def _now() -> str:
@@ -49,22 +55,28 @@ class TaskStore:
     def path(self) -> Path:
         return self.db.path
 
-    def add(self, title: str, due_date: date | None = None) -> Task:
+    def add(self, title: str, due_date: date | None = None, course_id: int | None = None) -> Task:
         with self.db.connect() as conn:
             cursor = conn.execute(
-                "INSERT INTO tasks (title, due_date, created_at) VALUES (?, ?, ?)",
-                (title, due_date.isoformat() if due_date else None, _now()),
+                "INSERT INTO tasks (title, due_date, created_at, course_id) VALUES (?, ?, ?, ?)",
+                (title, due_date.isoformat() if due_date else None, _now(), course_id),
             )
             return self._get(conn, cursor.lastrowid)
 
-    def list(self, status: StatusFilter = "open", limit: int = 20) -> list[Task]:
-        """Earliest deadline first; tasks without a deadline last."""
-        where = "" if status == "all" else "WHERE status = ?"
-        params: tuple = () if status == "all" else (status,)
+    def list(self, status: StatusFilter = "open", limit: int = 20,
+             course_id: int | None = None) -> list[Task]:
+        """Earliest deadline first; tasks without a deadline last. Optionally one course."""
+        conditions, params = [], []
+        if status != "all":
+            conditions.append("t.status = ?")
+            params.append(status)
+        if course_id is not None:
+            conditions.append("t.course_id = ?")
+            params.append(course_id)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         with self.db.connect() as conn:
             rows = conn.execute(
-                f"SELECT * FROM tasks {where} "
-                "ORDER BY due_date IS NULL, due_date, id LIMIT ?",
+                f"{_SELECT} {where} ORDER BY t.due_date IS NULL, t.due_date, t.id LIMIT ?",
                 (*params, limit),
             ).fetchall()
         return [Task(**dict(row)) for row in rows]
@@ -82,7 +94,7 @@ class TaskStore:
 
     @staticmethod
     def _get(conn: sqlite3.Connection, task_id: int | None) -> Task:
-        row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        row = conn.execute(f"{_SELECT} WHERE t.id = ?", (task_id,)).fetchone()
         if row is None:
             raise TaskNotFound(f"Task {task_id} not found.")
         return Task(**dict(row))

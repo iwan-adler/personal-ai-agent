@@ -15,6 +15,7 @@ from app.conversation import Conversation
 from app.llm.client import LLMClient, LLMError
 from app.logging_setup import setup_logging
 from app.memory.db import Database
+from app.memory.courses import CourseNotFound, CourseStore
 from app.memory.documents import DocumentNotFound, DocumentStore
 from app.memory.facts import FactNotFound, FactStore
 from app.memory.sessions import SessionNotFound, SessionStore
@@ -22,6 +23,7 @@ from app.memory.tasks import TaskStore
 from app.safety.permissions import DEFAULT_GRANTS, SafetyLayer
 from app.tools.base import ToolContext, ToolRegistry
 from app.tools.builtin import build_default_registry
+from app.tools.courses import register_course_tools
 from app.tools.docs import register_doc_tools
 from app.tools.facts import register_fact_tools
 from app.tools.file_write import register_file_write_tools
@@ -50,6 +52,8 @@ HELP = """Commands:
   /forget-session <id>    delete a session and its messages permanently
   /facts [topic]          list what the agent remembers about you
   /forget-fact <id>       delete a remembered fact permanently
+  /courses                list your courses
+  /forget-course <code>   delete a course (linked tasks, facts and documents stay)
   /docs                   list the documents in your library
   /forget-doc <id>        remove a document from the library (not the file)
   /help                   show this list
@@ -64,6 +68,7 @@ class ChatState:
     audit: AuditLog
     facts: FactStore | None = None
     docs: DocumentStore | None = None
+    courses: CourseStore | None = None
     conversation: Conversation = field(default_factory=Conversation)
     # Created on the first saved turn, so launching and quitting leaves no empty session.
     session_id: int | None = None
@@ -87,6 +92,38 @@ def _parse_id(arg: str | None) -> int | None:
         return int(arg) if arg is not None else None
     except ValueError:
         return None
+
+
+def _course_command(command: str, arg: str | None, state: ChatState, confirm: Callable[[str], bool]) -> str:
+    if state.courses is None:
+        return "Courses are not configured."
+    if command == "/courses":
+        rows = state.courses.list()
+        if not rows:
+            return "No courses yet. Ask the agent to add one, e.g. 'add course DBMS, Database Systems'."
+        lines = []
+        for s in rows:
+            semester = f" ({s.course.semester})" if s.course.semester else ""
+            due = f", next: {s.next_due_title} on {s.next_due_date}" if s.next_due_date else ""
+            lines.append(
+                f"  {s.course.code}  {s.course.name}{semester}: {s.open_tasks} open tasks, "
+                f"{s.documents} documents, {s.facts} facts{due}"
+            )
+        return "\n".join(lines)
+    if arg is None:
+        return "Usage: /forget-course <code>"
+    try:
+        course = state.courses.get(arg)
+    except CourseNotFound:
+        return f"Course {arg} not found."
+    if not confirm(f"Delete course {course.code} ({course.name})? Its tasks, facts and documents stay, unlinked."):
+        return "Kept."
+    state.courses.forget(course.code)
+    try:
+        state.audit.write("course_forget", course_id=course.id)
+    except OSError:
+        pass
+    return f"Deleted course {course.code}."
 
 
 def _doc_command(command: str, arg: str | None, state: ChatState, confirm: Callable[[str], bool]) -> str:
@@ -179,6 +216,9 @@ def handle_command(line: str, state: ChatState, confirm: Callable[[str], bool] =
             state.session_id = None
         return f"Deleted session #{target}."
 
+    if command in {"/courses", "/forget-course"}:
+        return _course_command(command, arg, state, confirm)
+
     if command in {"/docs", "/forget-doc"}:
         return _doc_command(command, arg, state, confirm)
 
@@ -223,6 +263,7 @@ def build_registry(settings: Settings, backup_dir: Path = DATA_DIR / "file-backu
     registry = build_default_registry()
     register_task_tools(registry)
     register_fact_tools(registry)
+    register_course_tools(registry)
     if settings.workspace_dir is not None:
         register_file_tools(registry, settings.workspace_dir)
         register_file_write_tools(registry, settings.workspace_dir, backup_dir)
@@ -254,6 +295,7 @@ def main() -> int:
         sessions = SessionStore(db)
         facts = FactStore(db)
         docs = DocumentStore(db)
+        courses = CourseStore(db)
         audit = AuditLog(DATA_DIR / "audit.jsonl")
     except (OSError, sqlite3.Error) as exc:
         print(f"Storage error: could not open {DATA_DIR}: {exc}", file=sys.stderr)
@@ -273,10 +315,10 @@ def main() -> int:
         safety=safety,
         logger=logger,
         confirm=_confirm,
-        tool_ctx=ToolContext(task_store=task_store, fact_store=facts, doc_store=docs),
+        tool_ctx=ToolContext(task_store=task_store, fact_store=facts, doc_store=docs, course_store=courses),
         audit=audit,
     )
-    state = ChatState(sessions=sessions, audit=audit, facts=facts, docs=docs)
+    state = ChatState(sessions=sessions, audit=audit, facts=facts, docs=docs, courses=courses)
 
     print("Personal AI Agent (quit / exit to stop)")
     print(f"model={settings.openai_model} autonomy={int(settings.autonomy_level)}")

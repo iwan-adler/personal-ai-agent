@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.memory.documents import Chunk, DocumentStore
 from app.tools.base import RiskLevel, Tool, ToolContext, ToolRegistry, ToolTimeout
+from app.tools.courses import course_field, course_id_for
 from app.tools.process import run_command
 from app.tools.workspace import WorkspaceError, check_relative_path, resolve_in_workspace
 
@@ -55,6 +56,7 @@ class DocImportInput(BaseModel):
         default=".",
         description="File or folder inside the workspace's library/ folder; '.' imports everything.",
     )
+    course: str | None = course_field()
 
     @field_validator("path")
     @classmethod
@@ -84,6 +86,7 @@ class DocSearchInput(BaseModel):
 
     query: str = Field(min_length=1, max_length=200)
     limit: int = Field(default=5, ge=1, le=10)
+    course: str | None = course_field()
 
 
 class DocHit(BaseModel):
@@ -107,6 +110,7 @@ class DocInfo(BaseModel):
     kind: str
     pages: int | None
     chunks: int
+    course: str | None = None
 
 
 class DocListOutput(BaseModel):
@@ -211,7 +215,8 @@ def _pdf_chunks(pages: list[str]) -> list[Chunk]:
     return chunks
 
 
-def _doc_import(root: Path, store: DocumentStore, args: DocImportInput) -> DocImportOutput:
+def _doc_import(root: Path, store: DocumentStore, args: DocImportInput,
+                course_id: int | None = None) -> DocImportOutput:
     files, problems = _files(root, args.path)
     status: Counter = Counter()
     pages = chunk_count = 0
@@ -224,6 +229,9 @@ def _doc_import(root: Path, store: DocumentStore, args: DocImportInput) -> DocIm
         data = real.read_bytes()
         sha256 = hashlib.sha256(data).hexdigest()
         if store.sha256_of(rel) == sha256:
+            # Still lets an explicit course be attached to an unchanged document.
+            if course_id is not None:
+                store.save(rel, kind, sha256, size, None, [], course_id)
             status["unchanged"] += 1
             continue
         page_count = None
@@ -238,7 +246,7 @@ def _doc_import(root: Path, store: DocumentStore, args: DocImportInput) -> DocIm
             pages += page_count
         else:
             chunks = _text_chunks(data)
-        status[store.save(rel, kind, sha256, size, page_count, chunks)] += 1
+        status[store.save(rel, kind, sha256, size, page_count, chunks, course_id)] += 1
         chunk_count += len(chunks)
     return DocImportOutput(
         imported=status["imported"],
@@ -256,27 +264,28 @@ def _preview_import(root: Path, args: DocImportInput) -> str:
     shown = "\n".join(f"  - {rel}" for rel, _ in files[:20])
     more = f"\n  … {len(files) - 20} more" if len(files) > 20 else ""
     note = f"\nSkipped: {dict(skipped)}" if skipped else ""
+    course = f", linked to course {args.course}" if args.course else ""
     return (
         f"Import {len(files)} file(s), {size / 1_000_000:.1f} MB, from library/{'' if args.path == '.' else args.path} "
-        f"into the document library:\n{shown}{more}{note}"
+        f"into the document library{course}:\n{shown}{more}{note}"
     )
 
 
-def _doc_search(store: DocumentStore, args: DocSearchInput) -> DocSearchOutput:
+def _doc_search(store: DocumentStore, args: DocSearchInput, course_id: int | None = None) -> DocSearchOutput:
     hits = [
         DocHit(
             citation=hit.citation,
             document_id=hit.document_id,
             text=hit.text if len(hit.text) <= HIT_MAX_CHARS else hit.text[:HIT_MAX_CHARS] + "…",
         )
-        for hit in store.search(args.query, args.limit)
+        for hit in store.search(args.query, args.limit, course_id)
     ]
     return DocSearchOutput(count=len(hits), hits=hits)
 
 
 def _doc_list(store: DocumentStore) -> DocListOutput:
     documents = [
-        DocInfo(id=d.id, path=d.path, kind=d.kind, pages=d.pages, chunks=d.chunk_count)
+        DocInfo(id=d.id, path=d.path, kind=d.kind, pages=d.pages, chunks=d.chunk_count, course=d.course)
         for d in store.list()
     ]
     return DocListOutput(count=len(documents), documents=documents)
@@ -295,7 +304,7 @@ def register_doc_tools(registry: ToolRegistry, workspace: Path) -> None:
             output_model=DocImportOutput,
             permission="docs.write",
             risk=RiskLevel.CONFIRMATION,
-            handler=lambda ctx, args: _doc_import(root, _store(ctx), args),
+            handler=lambda ctx, args: _doc_import(root, _store(ctx), args, course_id_for(ctx, args.course)),
             preview=lambda ctx, args: _preview_import(root, args),
             timeout_seconds=900.0,
         )
@@ -312,7 +321,7 @@ def register_doc_tools(registry: ToolRegistry, workspace: Path) -> None:
             output_model=DocSearchOutput,
             permission="docs.read",
             risk=RiskLevel.SAFE,
-            handler=lambda ctx, args: _doc_search(_store(ctx), args),
+            handler=lambda ctx, args: _doc_search(_store(ctx), args, course_id_for(ctx, args.course)),
             max_output_bytes=16_384,
             reads_outside_content=True,
         )

@@ -29,6 +29,12 @@ class Fact:
     text: str
     topic: str | None
     created_at: str
+    course_id: int | None = None
+    course: str | None = None  # the course code, for display
+
+
+_COLUMNS = "f.*, c.code AS course"
+_COURSE_JOIN = "LEFT JOIN courses c ON c.id = f.course_id"
 
 
 def _now() -> str:
@@ -52,37 +58,41 @@ class FactStore:
     def __init__(self, db: Database | Path | str) -> None:
         self.db = db if isinstance(db, Database) else Database(db)
 
-    def add(self, text: str, topic: str | None = None) -> Fact:
+    def add(self, text: str, topic: str | None = None, course_id: int | None = None) -> Fact:
         with self.db.connect() as conn:
             cursor = conn.execute(
-                "INSERT INTO facts (text, topic, created_at) VALUES (?, ?, ?)",
-                (text, topic, _now()),
+                "INSERT INTO facts (text, topic, created_at, course_id) VALUES (?, ?, ?, ?)",
+                (text, topic, _now(), course_id),
             )
             return self._get(conn, cursor.lastrowid)
 
-    def search(self, query: str, limit: int = 5) -> list[Fact]:
+    def search(self, query: str, limit: int = 5, course_id: int | None = None) -> list[Fact]:
         match = fts_query(query)
         if match is None:
             return []
+        course_filter = "AND f.course_id = ?" if course_id is not None else ""
+        params = (match, course_id, limit) if course_id is not None else (match, limit)
         with self.db.connect() as conn:
             rows = conn.execute(
-                """
-                SELECT f.* FROM facts_fts
+                f"""
+                SELECT {_COLUMNS} FROM facts_fts
                   JOIN facts f ON f.id = facts_fts.rowid
-                 WHERE facts_fts MATCH ?
+                  {_COURSE_JOIN}
+                 WHERE facts_fts MATCH ? {course_filter}
                  ORDER BY bm25(facts_fts), f.id DESC
                  LIMIT ?
                 """,
-                (match, limit),
+                params,
             ).fetchall()
         return [Fact(**dict(row)) for row in rows]
 
     def list(self, topic: str | None = None, limit: int = 20) -> list[Fact]:
         """Newest first, optionally only one topic."""
-        where, params = ("WHERE topic = ?", (topic,)) if topic else ("", ())
+        where, params = ("WHERE f.topic = ?", (topic,)) if topic else ("", ())
         with self.db.connect() as conn:
             rows = conn.execute(
-                f"SELECT * FROM facts {where} ORDER BY id DESC LIMIT ?", (*params, limit)
+                f"SELECT {_COLUMNS} FROM facts f {_COURSE_JOIN} {where} ORDER BY f.id DESC LIMIT ?",
+                (*params, limit),
             ).fetchall()
         return [Fact(**dict(row)) for row in rows]
 
@@ -98,7 +108,7 @@ class FactStore:
 
     @staticmethod
     def _get(conn, fact_id: int | None) -> Fact:
-        row = conn.execute("SELECT * FROM facts WHERE id = ?", (fact_id,)).fetchone()
+        row = conn.execute(f"SELECT {_COLUMNS} FROM facts f {_COURSE_JOIN} WHERE f.id = ?", (fact_id,)).fetchone()
         if row is None:
             raise FactNotFound(f"Fact {fact_id} not found.")
         return Fact(**dict(row))

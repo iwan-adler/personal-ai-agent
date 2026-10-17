@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.memory.tasks import Task, TaskStore
 from app.tools.base import RiskLevel, Tool, ToolContext, ToolRegistry
+from app.tools.courses import course_field, course_id_for
 
 
 class TaskOut(BaseModel):
@@ -24,6 +25,7 @@ class TaskOut(BaseModel):
     status: str
     created_at: str
     completed_at: str | None
+    course: str | None = None
 
     @classmethod
     def of(cls, task: Task) -> TaskOut:
@@ -39,6 +41,7 @@ class TaskAddInput(BaseModel):
         default=None,
         description="Deadline as YYYY-MM-DD. Call time_now first to resolve words like 'Friday'.",
     )
+    course: str | None = course_field()
 
     @field_validator("due_date")
     @classmethod
@@ -57,6 +60,7 @@ class TaskListInput(BaseModel):
 
     status: Literal["open", "done", "all"] = "open"
     limit: int = Field(default=20, ge=1, le=50)
+    course: str | None = course_field()
 
 
 class TaskListOutput(BaseModel):
@@ -82,11 +86,12 @@ def _store(ctx: ToolContext) -> TaskStore:
 
 
 def task_add_handler(ctx: ToolContext, args: TaskAddInput) -> TaskAddOutput:
-    return TaskAddOutput(task=TaskOut.of(_store(ctx).add(args.title, args.due_date)))
+    task = _store(ctx).add(args.title, args.due_date, course_id_for(ctx, args.course))
+    return TaskAddOutput(task=TaskOut.of(task))
 
 
 def task_list_handler(ctx: ToolContext, args: TaskListInput) -> TaskListOutput:
-    tasks = _store(ctx).list(args.status, args.limit)
+    tasks = _store(ctx).list(args.status, args.limit, course_id_for(ctx, args.course))
     return TaskListOutput(status=args.status, count=len(tasks), tasks=[TaskOut.of(t) for t in tasks])
 
 

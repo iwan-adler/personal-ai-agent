@@ -97,6 +97,24 @@ MIGRATIONS: list[str] = [
         INSERT INTO chunks_fts (chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
     END;
     """,
+    # 5: courses (V0.6 "knowledge graph": foreign keys, not a graph engine).
+    # Tasks, facts and documents may point at a course; deleting a course only
+    # clears those links. Exams are tasks linked to their course.
+    """
+    CREATE TABLE courses (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        code       TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        name       TEXT NOT NULL,
+        semester   TEXT,
+        created_at TEXT NOT NULL
+    );
+    ALTER TABLE tasks ADD COLUMN course_id INTEGER REFERENCES courses(id) ON DELETE SET NULL;
+    ALTER TABLE facts ADD COLUMN course_id INTEGER REFERENCES courses(id) ON DELETE SET NULL;
+    ALTER TABLE documents ADD COLUMN course_id INTEGER REFERENCES courses(id) ON DELETE SET NULL;
+    CREATE INDEX tasks_by_course ON tasks (course_id);
+    CREATE INDEX facts_by_course ON facts (course_id);
+    CREATE INDEX documents_by_course ON documents (course_id);
+    """,
 ]
 
 

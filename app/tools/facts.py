@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.memory.facts import Fact, FactStore
 from app.tools.base import RiskLevel, Tool, ToolContext, ToolRegistry
+from app.tools.courses import course_field, course_id_for
 
 
 class FactOut(BaseModel):
@@ -22,6 +23,7 @@ class FactOut(BaseModel):
     text: str
     topic: str | None
     created_at: str
+    course: str | None = None
 
     @classmethod
     def of(cls, fact: Fact) -> FactOut:
@@ -38,6 +40,7 @@ class FactSaveInput(BaseModel):
         pattern=r"^[a-z0-9][a-z0-9 _-]*$",
         description="Optional short lowercase tag, e.g. 'studies' or 'exams'.",
     )
+    course: str | None = course_field()
 
 
 class FactSaveOutput(BaseModel):
@@ -49,6 +52,7 @@ class FactSearchInput(BaseModel):
 
     query: str = Field(min_length=1, max_length=200)
     limit: int = Field(default=5, ge=1, le=20)
+    course: str | None = course_field()
 
 
 class FactListInput(BaseModel):
@@ -70,11 +74,12 @@ def _store(ctx: ToolContext) -> FactStore:
 
 
 def fact_save_handler(ctx: ToolContext, args: FactSaveInput) -> FactSaveOutput:
-    return FactSaveOutput(fact=FactOut.of(_store(ctx).add(args.text, args.topic)))
+    fact = _store(ctx).add(args.text, args.topic, course_id_for(ctx, args.course))
+    return FactSaveOutput(fact=FactOut.of(fact))
 
 
 def fact_search_handler(ctx: ToolContext, args: FactSearchInput) -> FactListOutput:
-    facts = _store(ctx).search(args.query, args.limit)
+    facts = _store(ctx).search(args.query, args.limit, course_id_for(ctx, args.course))
     return FactListOutput(count=len(facts), facts=[FactOut.of(f) for f in facts])
 
 

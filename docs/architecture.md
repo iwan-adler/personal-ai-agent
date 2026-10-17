@@ -53,6 +53,20 @@ workspace, last 20 kept); no backup, no overwrite. Types Windows runs on
 double-click (`.exe .bat .cmd .ps1 .js .vbs .lnk .reg …`) are never written, and
 there is no delete, append or mkdir tool.
 
+### Courses (V0.6, the "knowledge graph")
+
+As the memory plan says, the knowledge graph is foreign keys, not a graph engine:
+migration 5 adds `courses` (short `code`, unique regardless of case, `name`,
+`semester`) and an optional `course_id` on `tasks`, `facts` and `documents`
+(`ON DELETE SET NULL`). Exams are tasks linked to their course, so a deadline lives
+in one place. `course_list` (SAFE) shows counts and the next open deadline;
+`course_add` / `course_update` (CONFIRMATION) change courses, with old -> new in the
+prompt. Task, fact and document tools take an optional `course` code to link or
+filter; an unknown code is an error, and without it they behave as before. Course
+data is the user's own, so it does not taint. Only `/forget-course` deletes, and
+it only clears links. A re-imported document keeps its course unless a new one is
+given.
+
 ### Document library (V0.6, implements D4)
 
 `doc_import` (CONFIRMATION, `docs.write`) reads `.md`, `.txt` and `.pdf` from
@@ -266,7 +280,7 @@ Do not add these until the previous milestone is approved:
 |---|---|---|
 | V0.4 | ~~SQLite tasks, sessions, facts~~ done | Need a working loop first |
 | V0.5 | GitHub, files, Linux sandbox | Needs safety + confirmations |
-| V0.6 | Knowledge graph, university, tutor | Needs durable facts |
+| V0.6 | ~~Document library~~, ~~courses~~ done; tutor (flashcards + /quiz) next | Needs durable facts |
 | V0.7 | Planner, opportunity scout, research | Needs tasks + citations rule |
 | V0.8 | FastAPI + HTMX, auth, dashboard (see D5; starts with pending approval + resume) | Needs data to show |
 | V0.9 | Docker, deploy, monitoring | Needs an API worth shipping |

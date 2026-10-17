@@ -41,6 +41,8 @@ class Document:
     pages: int | None
     imported_at: str
     chunk_count: int
+    course_id: int | None = None
+    course: str | None = None  # the course code, for display
 
 
 @dataclass(frozen=True)
@@ -74,20 +76,28 @@ class DocumentStore:
         return row["sha256"] if row else None
 
     def save(self, path: str, kind: str, sha256: str, size_bytes: int, pages: int | None,
-             chunks: list[Chunk]) -> ImportStatus:
-        """Insert or replace one document and all its chunks, atomically."""
+             chunks: list[Chunk], course_id: int | None = None) -> ImportStatus:
+        """Insert or replace one document and all its chunks, atomically.
+
+        A changed document keeps its course unless a new course_id is given; an
+        unchanged one only gets its course updated if one is given.
+        """
         with self.db.connect() as conn:
-            row = conn.execute("SELECT id, sha256 FROM documents WHERE path = ?", (path,)).fetchone()
+            row = conn.execute("SELECT id, sha256, course_id FROM documents WHERE path = ?", (path,)).fetchone()
             if row is not None and row["sha256"] == sha256:
+                if course_id is not None and course_id != row["course_id"]:
+                    conn.execute("UPDATE documents SET course_id = ? WHERE id = ?", (course_id, row["id"]))
                 return "unchanged"
+            if row is not None and course_id is None:
+                course_id = row["course_id"]
             if row is not None:
                 # Chunks first, so their FTS delete trigger runs for every row.
                 conn.execute("DELETE FROM chunks WHERE document_id = ?", (row["id"],))
                 conn.execute("DELETE FROM documents WHERE id = ?", (row["id"],))
             cursor = conn.execute(
-                "INSERT INTO documents (path, kind, sha256, size_bytes, pages, imported_at)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (path, kind, sha256, size_bytes, pages, _now()),
+                "INSERT INTO documents (path, kind, sha256, size_bytes, pages, imported_at, course_id)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (path, kind, sha256, size_bytes, pages, _now(), course_id),
             )
             conn.executemany(
                 "INSERT INTO chunks (document_id, seq, page, line, text) VALUES (?, ?, ?, ?, ?)",
@@ -95,22 +105,24 @@ class DocumentStore:
             )
             return "updated" if row is not None else "imported"
 
-    def search(self, query: str, limit: int = 5) -> list[Hit]:
+    def search(self, query: str, limit: int = 5, course_id: int | None = None) -> list[Hit]:
         match = fts_query(query)
         if match is None:
             return []
+        course_filter = "AND d.course_id = ?" if course_id is not None else ""
+        params = (match, course_id, limit) if course_id is not None else (match, limit)
         with self.db.connect() as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT d.id AS document_id, d.path, c.page, c.line, c.text
                   FROM chunks_fts
                   JOIN chunks c ON c.id = chunks_fts.rowid
                   JOIN documents d ON d.id = c.document_id
-                 WHERE chunks_fts MATCH ?
+                 WHERE chunks_fts MATCH ? {course_filter}
                  ORDER BY bm25(chunks_fts), c.id
                  LIMIT ?
                 """,
-                (match, limit),
+                params,
             ).fetchall()
         return [Hit(**dict(row)) for row in rows]
 
@@ -118,8 +130,10 @@ class DocumentStore:
         with self.db.connect() as conn:
             rows = conn.execute(
                 """
-                SELECT d.*, COUNT(c.id) AS chunk_count
-                  FROM documents d LEFT JOIN chunks c ON c.document_id = d.id
+                SELECT d.*, COUNT(ch.id) AS chunk_count, co.code AS course
+                  FROM documents d
+                  LEFT JOIN chunks ch ON ch.document_id = d.id
+                  LEFT JOIN courses co ON co.id = d.course_id
                  GROUP BY d.id ORDER BY d.path
                 """
             ).fetchall()
