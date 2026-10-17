@@ -3,37 +3,46 @@
 Koda is built in milestones, each gated on the previous one. Design decisions D1–D7
 and their reasons are in [docs/architecture.md](docs/architecture.md).
 
-## Unreleased
+## 1.1.0 (2026-10-17)
 
-- `sandbox_run` (V0.5 slice 6): shell commands in a throwaway Docker container on a
-  copy of the workspace, with no network, a read-only system, an unprivileged user and
-  resource limits. `HIGH_RISK`; needs Docker Desktop and a digest-pinned `SANDBOX_IMAGE`.
-- Koda as a desktop app on Windows: `scripts\install-shortcut.cmd` adds a Koda icon that
-  opens the web UI in its own Edge window (own profile, no extensions, no console) and
-  stops Koda when the window is closed (`python -m app.web_ui --app`).
-- New chat window design: sidebar, chat bubbles, instant echo of your message with a
-  "Thinking…" timer, Enter to send, suggestions, "New chat", visible errors (before,
-  a slow model or a refused request looked like nothing happened), and a redesigned
-  dashboard. Light and dark theme. All text is still added as text, never as HTML.
-- Chat: answers rendered as Markdown (headings, lists, tables, code with a copy
-  button) by a small built-in renderer that escapes everything first; a sidebar list
-  of recent chats to reopen or delete; suggested prompts; follow-up buttons (Explain
-  more, Give an example, Test my understanding).
+Koda becomes an interactive study partner in its own window.
+
+**Study partner**
 - Study Mode (`/study`): pick a subject, topic, difficulty, goal and mode (learn, revise,
   practice, quiz); a tutor without tools teaches in short steps, asks one question at a
   time and gives feedback. Python keeps the score (a verdict counts only for an answer to
   an open question) and the study time; sessions are saved (migration 9).
-- Study hours per weekday can be set on the dashboard. They override `STUDY_HOURS`
-  from `.env` (Reset returns to it) and apply at once to the dashboard, `/plan` and the
-  model's `plan_week` tool, which all read the same setting.
 - Flashcard practice in the window (`/cards`): the same SM-2 rules as `/quiz`, every
   grade saved at once, "again" shown once more at the end of the round, keyboard
   shortcuts, next interval on each button, practice per course. No model involved.
-- Dashboard: welcome with today's summary and your name, tasks you can add, edit,
-  complete, reopen and delete, deadlines grouped (overdue, today, next 14 days, later),
-  study time today and this week, progress per subject, and the weekly planner.
-- Local models (`OPENAI_BASE_URL` on 127.0.0.1 or localhost) get a 180 s default
-  timeout instead of 60 s: on a CPU the first answer can take over a minute.
+
+**Chat**
+- Answers rendered as Markdown (headings, lists, tables, code with a copy button) by a
+  small built-in renderer that escapes everything first.
+- Recent chats in the sidebar to reopen or delete; suggested prompts; follow-up buttons
+  (Explain more, Give an example, Test my understanding).
+- Your message appears at once with a "Thinking…" timer, Enter sends, errors are shown
+  (before, a slow model or a refused request looked like nothing happened).
+
+**Dashboard**
+- Welcome with today's summary and your name; tasks you can add, edit, complete,
+  reopen and delete; deadlines grouped (overdue, today, next 14 days, later); study time
+  today and this week; progress per subject; the weekly planner.
+- Study hours per weekday set right there. They override `STUDY_HOURS` (Reset returns
+  to it) and apply at once to the dashboard, `/plan` and the model's `plan_week` tool.
+
+**Desktop app and look**
+- `scripts\install-shortcut.cmd` adds a Koda icon that opens the web UI in its own Edge
+  window (own profile, no extensions, no console); closing the window stops Koda.
+- New design: sidebar, chat bubbles, cards, violet accents, light and dark theme,
+  works in narrow windows.
+
+**Tools and models**
+- `sandbox_run` (V0.5 slice 6): shell commands in a throwaway Docker container on a copy
+  of the workspace, with no network, a read-only system, an unprivileged user and
+  resource limits. `HIGH_RISK`; needs Docker Desktop and a digest-pinned `SANDBOX_IMAGE`.
+- Local models (`OPENAI_BASE_URL` on 127.0.0.1 or localhost) get a 180 s default timeout
+  instead of 60 s: on a CPU the first answer can take over a minute.
 
 ## 1.0.1 (2026-10-17)
 

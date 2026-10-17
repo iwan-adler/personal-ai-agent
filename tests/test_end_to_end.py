@@ -98,4 +98,4 @@ def test_a_study_week(tmp_path):
 
 
 def test_version_is_1_0_x():
-    assert __version__ == "1.0.1"
+    assert __version__ == "1.1.0"
