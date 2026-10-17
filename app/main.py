@@ -10,6 +10,7 @@ from pathlib import Path
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from app import __version__
 from app.agent.loop import AgentLoop
 from app.audit import AuditLog
 from app.backup import BackupError, maybe_auto_backup
@@ -512,7 +513,7 @@ def main() -> int:
         return 1
 
     announce_auto_backup(settings)
-    print("Personal AI Agent (quit / exit to stop)")
+    print(f"Koda {__version__} (quit / exit to stop)")
     print(f"model={settings.openai_model} autonomy={int(settings.autonomy_level)}")
     print(f"data={state.sessions.db.path} audit={state.audit.path}")
     print(f"workspace={settings.workspace_dir or '(not set: no file tools)'}")

@@ -444,7 +444,7 @@ Do not add these until the previous milestone is approved:
 | V0.7 | ~~Planner, web access (D6), opportunity scout, citations rule~~ done | Needs tasks + citations rule |
 | V0.8 | ~~Pending approval + resume, FastAPI + HTMX UI with token auth, dashboard~~ done (D5) | Needs data to show |
 | V0.9 | ~~Local operations per D7: health check, backups, start scripts~~ done (no deployment, no Docker) | Needs an API worth shipping |
-| V1.0 | Personal AI OS | Composition of the above |
+| V1.0 | ~~Personal AI OS: the pieces composed, checked by an end-to-end study-week test~~ 1.0.0 | Composition of the above |
 
 **Not now:** PostgreSQL, Redis, Neo4j, LangChain-as-core, voice, email sending, unrestricted shell, dashboard.
 

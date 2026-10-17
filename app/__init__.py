@@ -1,3 +1,3 @@
-"""Personal AI Agent — a modular Personal AI Operating System."""
+"""Koda, a personal AI agent: the model proposes, Python decides."""
 
-__version__ = "0.3.0"
+__version__ = "1.0.0"

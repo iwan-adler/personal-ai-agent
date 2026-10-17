@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 import sys
 
+from app import __version__
 from app.config import ConfigError, load_settings
 from app.logging_setup import setup_logging
 from app.main import DATA_DIR, announce_auto_backup, build_agent
@@ -31,7 +32,7 @@ def main() -> int:
 
     guard = Guard(port=settings.web_ui_port)
     app = create_app(agent, state, guard)
-    print("Koda web UI. Open this link (it signs you in; keep it private):")
+    print(f"Koda {__version__} web UI. Open this link (it signs you in; keep it private):")
     print(f"  http://{HOST}:{guard.port}/?token={guard.token}")
     print("Stop with Ctrl+C.")
     # No access log: the first request's URL carries the token.

@@ -8,7 +8,7 @@ The model never runs anything itself. Each turn it replies with a JSON decision:
 
 It works with OpenAI, any OpenAI-compatible API (Groq and others), or a **free local model through Ollama**.
 
-> Status: milestone **V0.9**: conversation, tools, agent loop and audit log; tasks, sessions and facts in SQLite (V0.4); workspace file tools and GitHub (V0.5, the Linux sandbox is postponed); a document library, courses and flashcards (V0.6); a planner, allowlisted web access, an opportunity scout and a citation check (V0.7); a local web interface with approvals and a dashboard (V0.8); local operations: health check, automatic backups and start scripts (V0.9). By design (D7) Koda stays on your computer: there is no deployment. See the [roadmap](docs/architecture.md).
+> Status: **1.0.0** (see [CHANGELOG.md](CHANGELOG.md)): conversation, tools, agent loop and audit log; tasks, sessions and facts in SQLite (V0.4); workspace file tools and GitHub (V0.5, the Linux sandbox is postponed); a document library, courses and flashcards (V0.6); a planner, allowlisted web access, an opportunity scout and a citation check (V0.7); a local web interface with approvals and a dashboard (V0.8); local operations: health check, automatic backups and start scripts (V0.9). By design (D7) Koda stays on your computer: there is no deployment. See the [roadmap](docs/architecture.md).
 
 ## Why build it this way
 
@@ -276,7 +276,7 @@ tail -n 20 data/audit.jsonl               # macOS / Linux
 python -m pytest
 ```
 
-There are 765 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
+There are 767 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
 
 - the agent loop: repair of malformed output, budgets, repeated-failure and repeated-call stops, the history window, and tool output that tries to break out of its `<tool_result>` block
 - the safety layer: every autonomy level, missing permissions, `HIGH_RISK` always confirming, Level 4 grants, duplicate writes
@@ -286,6 +286,7 @@ There are 765 tests (counting parametrised cases), which run in under a minute w
 - the task workflow end to end: request → confirmation → SQLite → audit, including declined confirmations, invalid dates, missing permissions, persistence across sessions, and audit-write failures (the tool must not run)
 - sessions and facts: tool results never saved, FTS5 syntax in search queries treated as plain text, saving facts always asks, deleting only by command, schema migrations keeping old data
 - files: Windows path tricks (`..`, drives, UNC, `file:stream`, `CON`, trailing dots, junctions, hard links) refused, overwrites only with the right checksum, backups, nothing half-written
+- the whole system end to end: a study week from adding a course to a backup, with only the model scripted
 - backups: consistent copies while the database is open, keeping the newest 10, once-a-day automatic backups, refusing corrupt, newer or tampered backups (including zip-slip paths), and a restore that asks and keeps your previous state
 - the web interface, over real HTTP against a local server: wrong Host headers (DNS rebinding), missing tokens, cross-site posts, CSRF, escaping of scripts and fake buttons, strict security headers, approvals that are forged or replayed, localhost-only binding
 - deferred approvals: pausing a run, continuing the same run after the answer, wrong one-time values refused without cancelling, answers counting once, expiry, grants, taint and duplicate history surviving the pause
