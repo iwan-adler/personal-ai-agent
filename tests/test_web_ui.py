@@ -258,3 +258,38 @@ def test_the_server_only_listens_on_localhost(monkeypatch, tmp_path, capsys):
     assert calls["host"] == "127.0.0.1" and calls["access_log"] is False and calls["proxy_headers"] is False
     out = capsys.readouterr().out
     assert re.search(r"http://127\.0\.0\.1:8765/\?token=\S{40,}", out)
+
+
+# --- Dashboard (read-only) --------------------------------------------------------------------------
+
+
+def test_dashboard_shows_plan_tasks_courses_cards_and_opportunities(make_server):
+    from datetime import date, timedelta
+
+    from app.memory.cards import NewCard
+
+    server = make_server()
+    state = server.state
+    dbms = state.courses.add("DBMS", "Database Systems", "WS 2026/27")
+    state.tasks.add("DBMS exam", date.today() + timedelta(days=4), dbms.id, estimate_hours=30)
+    state.cards.add_many([NewCard("Q", "A")])
+    state.opportunities.add_if_new("https://jobs.example.org/1", "Werkstudent Python", "x",
+                                   "https://jobs.example.org/rss", None, ["python"])
+    status, headers, body = server.request("GET", "/dashboard")
+    assert status == 200 and "script-src 'self'" in headers["content-security-policy"]
+    assert "DBMS exam" in body and "Not enough time" in body  # the plan's warning
+    assert "Database Systems" in body and "1 due today" in body
+    assert '<a href="https://jobs.example.org/1" rel="noopener noreferrer nofollow">Werkstudent Python</a>' in body
+    assert "<form" not in body  # read-only: nothing on this page can change data
+
+
+def test_dashboard_escapes_everything_and_needs_the_token(make_server):
+    server = make_server()
+    server.state.tasks.add('<script>alert("task")</script>')
+    server.state.opportunities.add_if_new("https://jobs.example.org/x", '<img src=x onerror=alert(1)>', "",
+                                          "https://jobs.example.org/rss", None, [])
+    body = server.request("GET", "/dashboard")[2]
+    assert "<script>alert" not in body and "<img src=x" not in body
+    assert "&lt;script&gt;" in body and "&lt;img src=x" in body
+    assert server.request("GET", "/dashboard", cookie=False)[0] == 403
+    assert server.request("GET", "/dashboard", host="evil.example")[0] == 400

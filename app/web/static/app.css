@@ -28,3 +28,11 @@ button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid
          background: var(--card); color: var(--fg); cursor: pointer; }
 button.approve { background: var(--ok); }
 button.decline { background: var(--risk); }
+nav { margin: 4px 0; }
+a { color: inherit; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin-bottom: 14px; }
+.card h2 { font-size: 17px; margin: 0 0 8px; }
+.card ul { margin: 0; padding-left: 18px; }
+table.plan { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.plan th, table.plan td { text-align: left; vertical-align: top; padding: 4px 6px; border-top: 1px solid var(--border); }
+.warning { background: var(--warn); padding: 6px 8px; border-radius: 6px; margin: 6px 0; }

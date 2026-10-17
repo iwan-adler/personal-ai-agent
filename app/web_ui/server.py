@@ -18,11 +18,13 @@ from jinja2 import Environment, FileSystemLoader
 from app.agent.loop import AgentLoop, ApprovalError, AgentRun, RunStatus
 from app.llm.client import LLMError
 from app.main import ChatState
+from app.tools.planner import compute_plan
 from app.web_ui.security import COOKIE, SECURITY_HEADERS, Guard
 
 HERE = Path(__file__).resolve().parent
 STATIC = HERE.parent / "web" / "static"
 MAX_MESSAGE_CHARS = 4_000
+DASHBOARD_DAYS = 7
 
 
 def _templates() -> Jinja2Templates:
@@ -75,6 +77,20 @@ def create_app(agent: AgentLoop, state: ChatState, guard: Guard) -> FastAPI:
         # conversation, which also holds model JSON and tool results.
         history = state.sessions.messages(state.session_id) if state.session_id is not None else []
         return render(request, "index.html", history=history, pending=agent.pending_approvals())
+
+    @app.get("/dashboard", response_class=HTMLResponse)
+    def dashboard(request: Request):
+        """Read-only overview: it never changes anything, so it has no forms."""
+        plan = compute_plan(state.tasks, state.cards, state.study_hours, DASHBOARD_DAYS) if state.tasks else None
+        return render(
+            request,
+            "dashboard.html",
+            plan=plan,
+            tasks=state.tasks.list(status="open", limit=50) if state.tasks else [],
+            courses=state.courses.list() if state.courses else [],
+            cards=state.cards.stats() if state.cards else None,
+            opportunities=state.opportunities.list("new", 20) if state.opportunities else [],
+        )
 
     @app.post("/chat", response_class=HTMLResponse)
     def chat(request: Request, message: str = Form(""), csrf: str = Form("")):

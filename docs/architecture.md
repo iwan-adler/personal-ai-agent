@@ -101,7 +101,9 @@ the approval id plus its one-time value. Jinja2 renders with autoescape, the CSP
 `selfRequestsOnly` on, so text from the model or tools can never become markup or
 code. The page shows the saved session (messages and final replies), not internal
 tool results. Tested over real HTTP against a local uvicorn, and clicked through in
-a browser with a scripted model.
+a browser with a scripted model. `/dashboard` is read-only (no forms): the plan from
+`compute_plan`, open tasks, courses, flashcard counts and new opportunities, whose
+links (stored http(s) only) carry `rel="noopener noreferrer nofollow"`.
 
 ### Deferred approvals (V0.8, first step of D5)
 
@@ -405,7 +407,7 @@ Do not add these until the previous milestone is approved:
 | V0.5 | GitHub, files, Linux sandbox | Needs safety + confirmations |
 | V0.6 | ~~Document library, courses, tutor (flashcards + /quiz)~~ done | Needs durable facts |
 | V0.7 | ~~Planner, web access (D6), opportunity scout, citations rule~~ done | Needs tasks + citations rule |
-| V0.8 | FastAPI + HTMX, auth, dashboard (see D5; starts with pending approval + resume) | Needs data to show |
+| V0.8 | ~~Pending approval + resume, FastAPI + HTMX UI with token auth, dashboard~~ done (D5) | Needs data to show |
 | V0.9 | Docker, deploy, monitoring | Needs an API worth shipping |
 | V1.0 | Personal AI OS | Composition of the above |
 

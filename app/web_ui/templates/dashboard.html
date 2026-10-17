@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Koda · Dashboard</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<main>
+  <header>
+    <h1>Koda</h1>
+    <nav><a href="/">Chat</a> · <strong>Dashboard</strong></nav>
+    <p class="hint">Read-only overview. Changes go through the chat, where each one asks you first.</p>
+  </header>
+
+  <section class="card">
+    <h2>This week</h2>
+    {% if plan %}
+      {% if plan.assumed_default_hours %}<p class="hint">No STUDY_HOURS set: assuming 2 h per day.</p>{% endif %}
+      <table class="plan">
+        <thead><tr><th>Day</th><th>Planned</th><th>Work</th></tr></thead>
+        <tbody>
+        {% for day in plan.days %}
+          <tr>
+            <td>{{ day.date.strftime("%a %d %b") }}</td>
+            <td>{{ "%g"|format(day.planned_hours) }} / {{ "%g"|format(day.capacity_hours) }} h{% if day.card_minutes %}<br><span class="hint">+ {{ "%g"|format(day.card_minutes) }} min cards</span>{% endif %}</td>
+            <td>
+              {% for block in day.blocks %}
+                <div>{{ "%g"|format(block.hours) }} h · {% if block.course %}[{{ block.course }}] {% endif %}{{ block.title }}</div>
+              {% else %}<span class="hint">–</span>{% endfor %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% for warning in plan.warnings %}<p class="warning">⚠ {{ warning }}</p>{% endfor %}
+      {% if plan.unestimated %}<p class="hint">Needs an estimate: {% for t in plan.unestimated %}{{ t.title }}{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+    {% else %}<p class="hint">Tasks are not configured.</p>{% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Open tasks</h2>
+    {% if tasks %}
+      <ul>
+      {% for t in tasks %}
+        <li>{% if t.due_date %}<strong>{{ t.due_date }}</strong> · {% endif %}{% if t.course %}[{{ t.course }}] {% endif %}{{ t.title }}{% if t.estimate_hours %} <span class="hint">({{ "%g"|format(t.estimate_hours) }} h)</span>{% endif %}</li>
+      {% endfor %}
+      </ul>
+    {% else %}<p class="hint">No open tasks.</p>{% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Courses</h2>
+    {% if courses %}
+      <ul>
+      {% for s in courses %}
+        <li><strong>{{ s.course.code }}</strong> {{ s.course.name }}{% if s.course.semester %} <span class="hint">({{ s.course.semester }})</span>{% endif %}: {{ s.open_tasks }} open tasks, {{ s.documents }} documents{% if s.next_due_date %}; next: {{ s.next_due_title }} on {{ s.next_due_date }}{% endif %}</li>
+      {% endfor %}
+      </ul>
+    {% else %}<p class="hint">No courses yet.</p>{% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Flashcards</h2>
+    {% if cards %}
+      <p>{{ cards.due }} due today · {{ cards.reviewed_today }} reviewed today · {{ cards.total }} in total. Study them with <code>/quiz</code> in the terminal.</p>
+    {% else %}<p class="hint">Flashcards are not configured.</p>{% endif %}
+  </section>
+
+  <section class="card">
+    <h2>New opportunities</h2>
+    {% if opportunities %}
+      <ul>
+      {% for o in opportunities %}
+        <li><a href="{{ o.link }}" rel="noopener noreferrer nofollow">{{ o.title }}</a> <span class="hint">(matched: {{ o.matched }})</span></li>
+      {% endfor %}
+      </ul>
+    {% else %}<p class="hint">None. Ask the agent to scan your feeds.</p>{% endif %}
+  </section>
+</main>
+</body>
+</html>
