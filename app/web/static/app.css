@@ -22,7 +22,9 @@ code { font-family: Consolas, ui-monospace, monospace; font-size: .92em; backgro
 .hidden { display: none !important; }
 
 /* Layout */
-.shell { display: flex; height: 100vh; }
+.shell { display: flex; height: 100vh; height: 100dvh; }
+body { overflow: hidden; }
+.dash-page { overflow: auto; }
 .sidebar { width: 220px; flex-shrink: 0; background: var(--side); border-right: 1px solid var(--border);
            display: flex; flex-direction: column; padding: 18px 12px; gap: 6px; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 19px; padding: 0 8px 14px; }
