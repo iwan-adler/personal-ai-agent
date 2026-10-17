@@ -407,6 +407,17 @@ API with arbitrary result URLs (new key and cost; model-chosen URLs would need a
 prompt on every fetch). It stays a separate decision if allowlisted research proves
 too narrow.
 
+### D7: stay local, no deployment (decided 2026-10-17)
+
+V0.9's roadmap line said "Docker, deploy". Koda is built for one person on one computer
+(D5: the web UI listens on 127.0.0.1 only, one session token, no accounts). Putting it
+on a server would need real user accounts, HTTPS, protection from the internet and
+hosting costs: a different security design, not a deployment step. **Chosen: stay
+local.** V0.9 becomes local operations: a health check (`app.doctor`), automatic
+backups of `data/` with a verified restore, and start scripts. Docker is not used
+(not installed; it would only repackage the same local setup); the Linux sandbox
+(V0.5 slice 6) stays postponed until Docker is installed.
+
 ## V0.4+ (not built)
 
 Do not add these until the previous milestone is approved:
@@ -418,7 +429,7 @@ Do not add these until the previous milestone is approved:
 | V0.6 | ~~Document library, courses, tutor (flashcards + /quiz)~~ done | Needs durable facts |
 | V0.7 | ~~Planner, web access (D6), opportunity scout, citations rule~~ done | Needs tasks + citations rule |
 | V0.8 | ~~Pending approval + resume, FastAPI + HTMX UI with token auth, dashboard~~ done (D5) | Needs data to show |
-| V0.9 | Docker, deploy, monitoring | Needs an API worth shipping |
+| V0.9 | Local operations per D7: health check, backups, start scripts (no deployment, no Docker) | Needs an API worth shipping |
 | V1.0 | Personal AI OS | Composition of the above |
 
 **Not now:** PostgreSQL, Redis, Neo4j, LangChain-as-core, voice, email sending, unrestricted shell, dashboard.
