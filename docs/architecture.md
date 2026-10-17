@@ -85,6 +85,21 @@ that pass the same URL check are returned. For feeds, `parse_xml_safely` refuses
 any DOCTYPE or ENTITY declaration and non-ASCII-compatible encodings before the
 standard parser (expat 2.8, which itself refuses entity expansion) sees them.
 
+### Deferred approvals (V0.8, first step of D5)
+
+`AgentLoop(defer_approvals=True)` does not call `confirm()`. A call that needs an
+answer pauses the run (`RunStatus.AWAITING_APPROVAL`) with `run.pending`: an
+approval id, a 32-byte one-time value (`secrets.token_urlsafe`), the same prompt the
+CLI shows, and an expiry (15 minutes). `resume(approval_id, nonce, approved)`
+continues **the same run**: the answer is audited, a grant offer is accepted on yes,
+the tool runs, and the loop goes on. The value is compared in constant time; a
+wrong one is refused and leaves the approval pending (guessing cannot cancel it); a
+used or expired one is unknown. While paused, `end_run` is not called, so grants,
+taint and duplicate history survive; an expired approval ends its run as `EXPIRED`.
+The loop's counters live in a `_RunState`, and `_act` is split into review,
+`_decide` (apply an answer) and `_execute`, so the CLI's blocking `confirm()` and the
+deferred path share every safety step. Pending approvals live in memory only.
+
 ### Citations rule (V0.7)
 
 Tools that read citable material declare it: `Tool.cites(args, output)` returns the

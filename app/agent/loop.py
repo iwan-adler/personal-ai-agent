@@ -9,6 +9,8 @@ import hashlib
 import json
 import logging
 import re
+import secrets
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -22,7 +24,7 @@ from app.citations import annotate, unverified
 from app.config import AutonomyLevel, Settings
 from app.conversation import SYSTEM_PROMPT, Conversation
 from app.llm.client import Completer, CompletionResult
-from app.safety.permissions import SafetyLayer
+from app.safety.permissions import SafetyDecision, SafetyLayer
 from app.tools.base import (
     RiskLevel,
     Tool,
@@ -40,6 +42,8 @@ class RunStatus(StrEnum):
     DONE = "DONE"
     FAILED = "FAILED"
     BLOCKED = "BLOCKED"
+    # Deferred mode only: paused until resume() answers run.pending.
+    AWAITING_APPROVAL = "AWAITING_APPROVAL"
 
 
 class AgentAction(BaseModel):
@@ -83,6 +87,8 @@ class AgentRun:
     # reply that match none of them (app/citations.py).
     sources: set[str] = field(default_factory=set)
     unverified_citations: list[str] = field(default_factory=list)
+    # Set while status is AWAITING_APPROVAL (deferred mode).
+    pending: PendingApproval | None = None
 
 
 DECISION_INSTRUCTIONS = """You must reply with a single JSON object only (no markdown).
@@ -194,6 +200,71 @@ def _parse_decision(raw: str) -> AgentAction:
     return decision
 
 
+# How long a deferred approval stays answerable.
+APPROVAL_TTL_SECONDS = 15 * 60
+
+# (observation, status, tool name, risk, error type for the audit log)
+_Outcome = tuple[str, str, "str | None", "str | None", "str | None"]
+
+
+class ApprovalError(LookupError):
+    """Unknown, already answered or expired approval, or a wrong one-time value."""
+
+
+@dataclass(frozen=True)
+class PendingApproval:
+    """What a UI shows and must send back: the id and the one-time value."""
+
+    approval_id: str
+    nonce: str
+    run_id: str
+    tool: str
+    risk: str | None
+    prompt: str
+    grant_offered: bool
+    expires_at: float  # time.monotonic()
+
+
+@dataclass
+class _RunState:
+    """Everything a run needs to continue after a pause."""
+
+    run: AgentRun
+    conv: Conversation
+    failure_key: str | None = None
+    identical_failures: int = 0
+    repair_attempts: int = 0
+    # (tool, args hash) of the last successful tool call, and how many
+    # identical SAFE calls in a row were skipped since.
+    last_ok_call: tuple[str, str] | None = None
+    repeated_calls: int = 0
+
+
+@dataclass(frozen=True)
+class _ToolStep:
+    decision: AgentAction
+    model_text: str
+    latency_ms: int
+    summary: str
+    call_key: tuple[str, str]
+
+
+@dataclass(frozen=True)
+class _NeedsApproval:
+    tool_name: str
+    risk: str | None
+    reviewed: SafetyDecision
+    prompt: str
+
+
+@dataclass(frozen=True)
+class _Paused:
+    state: _RunState
+    step: _ToolStep
+    needs: _NeedsApproval
+    approval: PendingApproval
+
+
 class AgentLoop:
     def __init__(
         self,
@@ -206,7 +277,10 @@ class AgentLoop:
         tool_ctx: ToolContext | None = None,
         *,
         audit: AuditLog,
+        defer_approvals: bool = False,
     ) -> None:
+        """defer_approvals: instead of calling confirm() and blocking, pause the run
+        with run.pending and continue it with resume() (for a web UI, D5)."""
         # Required, with no "off" value: a forgotten audit log must fail here,
         # not silently run tools with nothing recorded.
         if audit is None:
@@ -219,8 +293,12 @@ class AgentLoop:
         self.confirm = confirm
         self.tool_ctx = tool_ctx or ToolContext()
         self._audit_log = audit
+        self.defer_approvals = defer_approvals
+        self._paused: dict[str, _Paused] = {}
+        self._lock = threading.Lock()
 
     def run(self, user_text: str, conversation: Conversation | None = None) -> AgentRun:
+        self.expire_pending()
         run_id = str(uuid.uuid4())
         # The user's text is not logged; only its length.
         self._audit(
@@ -230,16 +308,71 @@ class AgentLoop:
             goal_chars=len(user_text),
         )
         try:
-            run = self._run(run_id, user_text, conversation)
+            run = self._start(run_id, user_text, conversation)
         except Exception as exc:
-            self._audit("run_end", run_id=run_id, status="ERROR", error=type(exc).__name__)
+            self._end_with_error(run_id, exc)
             raise
-        finally:
-            # Level 4 grants last for one request only.
-            self.safety.end_run(run_id)
+        return self._finish(run)
+
+    def resume(self, approval_id: str, nonce: str, approved: bool) -> AgentRun:
+        """Answer a pending approval and continue the same run (deferred mode).
+
+        The answer counts only with the approval id and its one-time value, at
+        most once and before it expires. A wrong value is refused and leaves
+        the approval pending, so guessing cannot cancel it either.
+        """
+        self.expire_pending()
+        with self._lock:
+            paused = self._paused.get(approval_id)
+            if paused is None:
+                raise ApprovalError("Unknown or already answered approval.")
+            if not secrets.compare_digest(nonce.encode(), paused.approval.nonce.encode()):
+                raise ApprovalError("Wrong one-time value for this approval.")
+            del self._paused[approval_id]
+        state = paused.state
+        state.run.status, state.run.pending = RunStatus.DONE, None
+        try:
+            outcome = self._decide(state.run, paused.needs, approved, asked=True)
+            if not self._record_tool_step(state, paused.step, outcome):
+                self._steps(state)
+        except Exception as exc:
+            self._end_with_error(state.run.run_id, exc)
+            raise
+        return self._finish(state.run)
+
+    def pending_approvals(self) -> list[PendingApproval]:
+        with self._lock:
+            return [paused.approval for paused in self._paused.values()]
+
+    def expire_pending(self) -> None:
+        """Drop approvals older than APPROVAL_TTL_SECONDS; their runs end as EXPIRED."""
+        now = time.monotonic()
+        with self._lock:
+            expired = [p for p in self._paused.values() if now > p.approval.expires_at]
+            for paused in expired:
+                del self._paused[paused.approval.approval_id]
+        for paused in expired:
+            self.safety.end_run(paused.state.run.run_id)
+            self._audit("run_end", run_id=paused.state.run.run_id, status="EXPIRED",
+                        steps=len(paused.state.run.steps))
+
+    def _end_with_error(self, run_id: str, exc: Exception) -> None:
+        self.safety.end_run(run_id)
+        self._audit("run_end", run_id=run_id, status="ERROR", error=type(exc).__name__)
+
+    def _finish(self, run: AgentRun) -> AgentRun:
+        if run.status == RunStatus.AWAITING_APPROVAL:
+            # Paused, not finished: grants, taint and duplicate history must survive
+            # until the answer comes, so end_run is not called yet.
+            assert run.pending is not None
+            self._audit("approval_pending", run_id=run.run_id, approval_id=run.pending.approval_id,
+                        tool=_safe_tool_name(run.pending.tool))
+            return run
+        # Level 4 grants last for one request only.
+        self.safety.end_run(run.run_id)
         self._audit(
             "run_end",
-            run_id=run_id,
+            run_id=run.run_id,
             status=run.status.value,
             steps=len(run.steps),
             input_tokens=run.input_tokens,
@@ -278,7 +411,7 @@ class AgentLoop:
             detail=_audit_detail(step),
         )
 
-    def _run(self, run_id: str, user_text: str, conversation: Conversation | None) -> AgentRun:
+    def _start(self, run_id: str, user_text: str, conversation: Conversation | None) -> AgentRun:
         conv = conversation or Conversation()
         conv.add_user(user_text)
         # Read the level from the safety layer, which enforces it, so the prompt,
@@ -291,14 +424,6 @@ class AgentLoop:
             status=RunStatus.DONE,
             final_text="",
         )
-        failure_key: str | None = None
-        identical_failures = 0
-        repair_attempts = 0
-        # (tool, args hash) of the last successful tool call, and how many
-        # identical SAFE calls in a row were skipped since.
-        last_ok_call: tuple[str, str] | None = None
-        repeated_calls = 0
-
         schemas = json.dumps(self.registry.schemas_for_prompt(), indent=2)
         system = (
             f"{SYSTEM_PROMPT}\n\n{DECISION_INSTRUCTIONS}\n\n"
@@ -306,7 +431,11 @@ class AgentLoop:
             f"Allowed tools:\n{schemas}"
         )
         conv.messages[0] = {"role": "system", "content": system}
+        return self._steps(_RunState(run=run, conv=conv))
 
+    def _steps(self, state: _RunState) -> AgentRun:
+        """The loop proper; returns when the run ends or pauses for an approval."""
+        run, conv = state.run, state.conv
         while True:
             if run.step_index >= self.settings.max_steps:
                 run.status = RunStatus.FAILED
@@ -328,7 +457,7 @@ class AgentLoop:
             try:
                 decision = _parse_decision(result.text)
             except (ValueError, ValidationError) as exc:
-                if repair_attempts >= self.settings.max_repair_attempts:
+                if state.repair_attempts >= self.settings.max_repair_attempts:
                     run.status = RunStatus.FAILED
                     run.final_text = f"Stopped: invalid model output ({exc})."
                     run.stop_reason = "invalid_output"
@@ -336,12 +465,12 @@ class AgentLoop:
                 # Malformed output is a formatting slip, not a decision: tell the
                 # model what was wrong and ask again. Bounded by its own counter
                 # (not max_steps) and still charged to the token budget above.
-                repair_attempts += 1
+                state.repair_attempts += 1
                 self._add_step(
                     run,
                     StepRecord(
                         index=len(run.steps),
-                        summary=f"Repair attempt {repair_attempts}: model output was malformed.",
+                        summary=f"Repair attempt {state.repair_attempts}: model output was malformed.",
                         tool_name=None,
                         args_hash=None,
                         risk=None,
@@ -357,7 +486,7 @@ class AgentLoop:
                 conv.add_assistant(bad_reply)
                 conv.add_user(_repair_message(exc), kind="repair")
                 continue
-            repair_attempts = 0
+            state.repair_attempts = 0
 
             action = decision.normalized_action()
             summary = decision.summary or f"Action: {action}"
@@ -405,79 +534,111 @@ class AgentLoop:
                 run.step_index += 1
                 return run
 
-            call_key = (decision.tool or "", _args_hash(decision.args))
-            known_tool = self.registry.get(call_key[0])
+            step = _ToolStep(decision=decision, model_text=result.text, latency_ms=latency_ms,
+                             summary=summary, call_key=(decision.tool or "", _args_hash(decision.args)))
+            known_tool = self.registry.get(step.call_key[0])
             if (
                 known_tool is not None
                 and known_tool.risk == RiskLevel.SAFE
-                and call_key == last_ok_call
+                and step.call_key == state.last_ok_call
             ):
                 # Nothing ran in between that could change the answer, so running
                 # it again is no progress. Writes are handled by the safety layer.
-                observation, step_status, tool_name, risk, error_type = (
-                    REPEATED_OBSERVATION, "repeated", call_key[0], known_tool.risk.value, None
-                )
+                outcome: _Outcome = (REPEATED_OBSERVATION, "repeated", step.call_key[0], known_tool.risk.value, None)
             else:
-                observation, step_status, tool_name, risk, error_type = self._act(decision, run)
-                if step_status == "ok":
-                    last_ok_call = call_key
-            self._add_step(
-                run,
-                StepRecord(
-                    index=len(run.steps),
-                    summary=summary,
-                    tool_name=tool_name,
-                    args_hash=_args_hash(decision.args),
-                    risk=risk,
-                    result_status=step_status,
-                    latency_ms=latency_ms,
-                    observation=observation,
-                    error_type=error_type,
-                )
-            )
-            self.logger.info(
-                "agent_step",
-                extra={"event": {"run_id": run.run_id, "summary": summary, "status": step_status}},
-            )
-            conv.add_assistant(result.text)
-            conv.add_user(_wrap_observation(tool_name, step_status, observation), kind="tool_result")
-            run.step_index += 1
-
-            if step_status == "repeated":
-                repeated_calls += 1
-                if repeated_calls >= 2:
-                    run.status = RunStatus.FAILED
-                    run.final_text = "Stopped: the model kept repeating the same tool call."
-                    run.stop_reason = "repeated_call"
-                    return run
-            else:
-                repeated_calls = 0
-
-            if step_status in {"denied", "error", "timeout"}:
-                key = f"{tool_name}:{step_status}:{observation}"
-                if key == failure_key:
-                    identical_failures += 1
+                acted = self._act(decision, run)
+                if isinstance(acted, _NeedsApproval):
+                    if self.defer_approvals:
+                        return self._pause(state, step, acted)
+                    approved = self.confirm is not None and self.confirm(acted.prompt)
+                    outcome = self._decide(run, acted, approved, asked=self.confirm is not None)
                 else:
-                    failure_key = key
-                    identical_failures = 1
-                if identical_failures >= 2:
-                    run.status = RunStatus.FAILED
-                    run.final_text = "Stopped: repeated identical tool failure."
-                    run.stop_reason = "repeated_failure"
-                    return run
+                    outcome = acted
+            if self._record_tool_step(state, step, outcome):
+                return run
+
+    def _pause(self, state: _RunState, step: _ToolStep, needs: _NeedsApproval) -> AgentRun:
+        approval = PendingApproval(
+            approval_id=uuid.uuid4().hex,
+            nonce=secrets.token_urlsafe(32),
+            run_id=state.run.run_id,
+            tool=needs.tool_name,
+            risk=needs.risk,
+            prompt=needs.prompt,
+            grant_offered=needs.reviewed.grant_offer is not None,
+            expires_at=time.monotonic() + APPROVAL_TTL_SECONDS,
+        )
+        with self._lock:
+            self._paused[approval.approval_id] = _Paused(state=state, step=step, needs=needs, approval=approval)
+        state.run.status = RunStatus.AWAITING_APPROVAL
+        state.run.pending = approval
+        state.run.final_text = f"Waiting for your approval: tool '{needs.tool_name}' ({needs.risk})."
+        return state.run
+
+    def _record_tool_step(self, state: _RunState, step: _ToolStep, outcome: _Outcome) -> bool:
+        """Record one tool step and apply the run-control rules. True if the run ended."""
+        run, conv = state.run, state.conv
+        observation, step_status, tool_name, risk, error_type = outcome
+        if step_status == "ok":
+            state.last_ok_call = step.call_key
+        self._add_step(
+            run,
+            StepRecord(
+                index=len(run.steps),
+                summary=step.summary,
+                tool_name=tool_name,
+                args_hash=_args_hash(step.decision.args),
+                risk=risk,
+                result_status=step_status,
+                latency_ms=step.latency_ms,
+                observation=observation,
+                error_type=error_type,
+            )
+        )
+        self.logger.info(
+            "agent_step",
+            extra={"event": {"run_id": run.run_id, "summary": step.summary, "status": step_status}},
+        )
+        conv.add_assistant(step.model_text)
+        conv.add_user(_wrap_observation(tool_name, step_status, observation), kind="tool_result")
+        run.step_index += 1
+
+        if step_status == "repeated":
+            state.repeated_calls += 1
+            if state.repeated_calls >= 2:
+                run.status = RunStatus.FAILED
+                run.final_text = "Stopped: the model kept repeating the same tool call."
+                run.stop_reason = "repeated_call"
+                return True
+        else:
+            state.repeated_calls = 0
+
+        if step_status in {"denied", "error", "timeout"}:
+            key = f"{tool_name}:{step_status}:{observation}"
+            if key == state.failure_key:
+                state.identical_failures += 1
             else:
-                failure_key = None
-                identical_failures = 0
+                state.failure_key = key
+                state.identical_failures = 1
+            if state.identical_failures >= 2:
+                run.status = RunStatus.FAILED
+                run.final_text = "Stopped: repeated identical tool failure."
+                run.stop_reason = "repeated_failure"
+                return True
+        else:
+            state.failure_key = None
+            state.identical_failures = 0
 
-            if step_status == "suggested":
-                run.status = RunStatus.DONE
-                run.final_text = observation
-                return run
+        if step_status == "suggested":
+            run.status = RunStatus.DONE
+            run.final_text = observation
+            return True
 
-            if step_status == "blocked_confirm":
-                run.status = RunStatus.BLOCKED
-                run.final_text = observation
-                return run
+        if step_status == "blocked_confirm":
+            run.status = RunStatus.BLOCKED
+            run.final_text = observation
+            return True
+        return False
 
     def _preview(self, tool: Tool | None, parsed_args: Any) -> str | None:
         """What the tool would do, for the confirmation prompt only (never audited,
@@ -494,10 +655,9 @@ class AgentLoop:
         # request's cost without bound and keep old tool output in context.
         return self.llm.complete(conv.window(self.settings.max_history_messages))
 
-    def _act(
-        self, decision: AgentAction, run: AgentRun
-    ) -> tuple[str, str, str | None, str | None, str | None]:
-        """Returns (observation, status, tool name, risk, error type for the audit log)."""
+    def _act(self, decision: AgentAction, run: AgentRun) -> _Outcome | _NeedsApproval:
+        """Review a tool call. Returns its outcome, or _NeedsApproval when a person
+        has to answer first (asked right away, or later in deferred mode)."""
         tool_name = decision.tool or ""
         reviewed = self.safety.review(tool_name, decision.args, run_id=run.run_id)
         tool = reviewed.tool
@@ -542,35 +702,45 @@ class AgentLoop:
                     f"'{tool_name}' run without asking for the rest of this request "
                     f"(max {offer.max_uses} uses)? {reviewed.reason}"
                 )
-            approved = self.confirm is not None and self.confirm(prompt)
-            recorded = self._audit(
-                "tool_confirmation",
-                run_id=run.run_id,
-                index=len(run.steps),
-                tool=_safe_tool_name(tool_name),
-                approved=approved,
-                asked=self.confirm is not None,
-                grant_offered=offer is not None,
-            )
-            if not approved:
-                # Short and fixed on purpose: this text reaches the model and is saved
-                # as the run's final reply, so it must not carry the args or a preview
-                # (a diff holds old file content, i.e. outside content).
-                message = f"Not approved: tool '{tool_name}' ({risk}). {reviewed.reason}"
-                return message, "blocked_confirm", tool_name, risk, None
-            if not recorded:
-                return "Audit log unavailable; tool not run.", "error", tool_name, risk, "AuditUnavailable"
-            if offer is not None:
-                # The user's yes is relayed; the safety layer decides what it grants.
-                grant = self.safety.accept_grant(offer)
-                self._audit(
-                    "grant_created",
-                    run_id=run.run_id,
-                    grant_id=grant.grant_id,
-                    tool=_safe_tool_name(tool_name),
-                    max_uses=grant.max_uses,
-                )
+            return _NeedsApproval(tool_name=tool_name, risk=risk, reviewed=reviewed, prompt=prompt)
 
+        return self._execute(run, reviewed, tool_name, risk)
+
+    def _decide(self, run: AgentRun, needs: _NeedsApproval, approved: bool, *, asked: bool) -> _Outcome:
+        """Apply a person's answer to a reviewed call."""
+        tool_name, risk, reviewed = needs.tool_name, needs.risk, needs.reviewed
+        offer = reviewed.grant_offer
+        recorded = self._audit(
+            "tool_confirmation",
+            run_id=run.run_id,
+            index=len(run.steps),
+            tool=_safe_tool_name(tool_name),
+            approved=approved,
+            asked=asked,
+            grant_offered=offer is not None,
+        )
+        if not approved:
+            # Short and fixed on purpose: this text reaches the model and is saved
+            # as the run's final reply, so it must not carry the args or a preview
+            # (a diff holds old file content, i.e. outside content).
+            message = f"Not approved: tool '{tool_name}' ({risk}). {reviewed.reason}"
+            return message, "blocked_confirm", tool_name, risk, None
+        if not recorded:
+            return "Audit log unavailable; tool not run.", "error", tool_name, risk, "AuditUnavailable"
+        if offer is not None:
+            # The user's yes is relayed; the safety layer decides what it grants.
+            grant = self.safety.accept_grant(offer)
+            self._audit(
+                "grant_created",
+                run_id=run.run_id,
+                grant_id=grant.grant_id,
+                tool=_safe_tool_name(tool_name),
+                max_uses=grant.max_uses,
+            )
+        return self._execute(run, reviewed, tool_name, risk)
+
+    def _execute(self, run: AgentRun, reviewed: SafetyDecision, tool_name: str, risk: str | None) -> _Outcome:
+        tool = reviewed.tool
         assert tool is not None
         assert reviewed.parsed_args is not None
         try:
