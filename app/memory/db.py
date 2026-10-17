@@ -115,6 +115,31 @@ MIGRATIONS: list[str] = [
     CREATE INDEX facts_by_course ON facts (course_id);
     CREATE INDEX documents_by_course ON documents (course_id);
     """,
+    # 6: flashcards with SM-2 scheduling, and a review log (V0.6 tutor).
+    """
+    CREATE TABLE cards (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        course_id     INTEGER REFERENCES courses(id) ON DELETE SET NULL,
+        front         TEXT NOT NULL,
+        back          TEXT NOT NULL,
+        source        TEXT,
+        ease          REAL NOT NULL DEFAULT 2.5,
+        interval_days INTEGER NOT NULL DEFAULT 0,
+        repetitions   INTEGER NOT NULL DEFAULT 0,
+        due_date      TEXT NOT NULL,           -- YYYY-MM-DD, local date
+        created_at    TEXT NOT NULL
+    );
+    CREATE INDEX cards_by_due ON cards (due_date, id);
+    CREATE INDEX cards_by_course ON cards (course_id);
+    CREATE TABLE reviews (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        card_id     INTEGER NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+        grade       INTEGER NOT NULL CHECK (grade BETWEEN 1 AND 4),
+        reviewed_on TEXT NOT NULL,             -- YYYY-MM-DD, local date
+        reviewed_at TEXT NOT NULL
+    );
+    CREATE INDEX reviews_by_day ON reviews (reviewed_on);
+    """,
 ]
 
 

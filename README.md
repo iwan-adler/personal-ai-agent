@@ -8,7 +8,7 @@ The model never runs anything itself. Each turn it replies with a JSON decision:
 
 It works with OpenAI, any OpenAI-compatible API (Groq and others), or a **free local model through Ollama**.
 
-> Status: milestone **V0.4** (conversation, tools, agent loop, audit log, plus persistent tasks, chat sessions and long-term facts in SQLite). Planned features like GitHub and file tools, document search and a dashboard are **not built yet**. See the [roadmap](docs/architecture.md).
+> Status: milestone **V0.6**: conversation, tools, agent loop and audit log; tasks, sessions and facts in SQLite (V0.4); workspace file tools and GitHub (V0.5, the Linux sandbox is postponed); a document library with citations, courses and flashcards (V0.6). Planned features like a planner and a dashboard are **not built yet**. See the [roadmap](docs/architecture.md).
 
 ## Why build it this way
 
@@ -70,6 +70,8 @@ flowchart LR
   | `course_list` | SAFE | Your courses with open tasks, documents, facts and the next deadline |
   | `course_add` | CONFIRMATION | Add a course with a short code (`DBMS`), a name and an optional semester |
   | `course_update` | CONFIRMATION | Change a course's name or semester; the prompt shows old and new |
+  | `card_propose` | CONFIRMATION | Save up to 20 flashcards at once; the prompt shows every question, answer and source |
+  | `card_stats` | SAFE | Flashcard counts (total, due today, reviewed today, per course), never their text |
 
   `task_add`, `fact_save` and `doc_import` take an optional `course` to link the new item; `task_list`, `fact_search` and `doc_search` take one to filter. Exams are tasks linked to their course, so every deadline lives in one place.
 
@@ -162,6 +164,9 @@ Commands (handled by the CLI, never sent to the model):
 | `/forget-session <id>` | Delete a session and its messages permanently (asks first) |
 | `/facts [topic]` | List what the agent remembers about you |
 | `/forget-fact <id>` | Delete a remembered fact permanently (asks first) |
+| `/quiz [course] [n]` | Study due flashcards: Enter shows the answer, then grade 1 again, 2 hard, 3 good, 4 easy (`q` stops; every grade is saved at once). Runs without the model |
+| `/cards [course]` | List your flashcards with their due dates |
+| `/forget-card <id>` | Delete a flashcard and its review history (asks first) |
 | `/courses` | List your courses with counts and the next deadline |
 | `/forget-course <code>` | Delete a course; its tasks, facts and documents stay, unlinked (asks first) |
 | `/docs` | List the documents in your library |
@@ -217,7 +222,7 @@ tail -n 20 data/audit.jsonl               # macOS / Linux
 python -m pytest
 ```
 
-There are 562 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
+There are 590 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
 
 - the agent loop: repair of malformed output, budgets, repeated-failure and repeated-call stops, the history window, and tool output that tries to break out of its `<tool_result>` block
 - the safety layer: every autonomy level, missing permissions, `HIGH_RISK` always confirming, Level 4 grants, duplicate writes
@@ -229,6 +234,7 @@ There are 562 tests (counting parametrised cases), which run in under a minute w
 - files: Windows path tricks (`..`, drives, UNC, `file:stream`, `CON`, trailing dots, junctions, hard links) refused, overwrites only with the right checksum, backups, nothing half-written
 - GitHub: only allowlisted repos, redirects refused (tested with real local servers), tokens never leaking, secrets refused before any publish prompt, the full text shown before publishing
 - outside content: after reading a file or an issue, Level 4 grants are suspended, so injected text cannot drive a write
+- flashcards: SM-2 intervals and ease, batches shown in full before saving, card text never sent back to the model, `/quiz` with scripted key presses (again comes back once, stopping keeps progress)
 - courses: upgrading a database with existing tasks, facts and documents, case-insensitive unique codes, linking and filtering, deleting a course without losing what was linked to it
 - documents: PDFs (built inside the tests) parsed only in an isolated child process, a hanging parser killed, encrypted and broken PDFs refused, citations with page and line numbers, junctions and hard links in `library/` ignored
 

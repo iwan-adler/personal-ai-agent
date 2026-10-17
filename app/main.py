@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import sys
+from collections import Counter
 from pathlib import Path
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -15,6 +16,7 @@ from app.conversation import Conversation
 from app.llm.client import LLMClient, LLMError
 from app.logging_setup import setup_logging
 from app.memory.db import Database
+from app.memory.cards import GRADE_NAMES, CardNotFound, CardStore
 from app.memory.courses import CourseNotFound, CourseStore
 from app.memory.documents import DocumentNotFound, DocumentStore
 from app.memory.facts import FactNotFound, FactStore
@@ -23,6 +25,7 @@ from app.memory.tasks import TaskStore
 from app.safety.permissions import DEFAULT_GRANTS, SafetyLayer
 from app.tools.base import ToolContext, ToolRegistry
 from app.tools.builtin import build_default_registry
+from app.tools.cards import register_card_tools
 from app.tools.courses import register_course_tools
 from app.tools.docs import register_doc_tools
 from app.tools.facts import register_fact_tools
@@ -52,6 +55,9 @@ HELP = """Commands:
   /forget-session <id>    delete a session and its messages permanently
   /facts [topic]          list what the agent remembers about you
   /forget-fact <id>       delete a remembered fact permanently
+  /quiz [course] [n]      study due flashcards (no model involved)
+  /cards [course]         list your flashcards
+  /forget-card <id>       delete a flashcard and its review history
   /courses                list your courses
   /forget-course <code>   delete a course (linked tasks, facts and documents stay)
   /docs                   list the documents in your library
@@ -69,6 +75,7 @@ class ChatState:
     facts: FactStore | None = None
     docs: DocumentStore | None = None
     courses: CourseStore | None = None
+    cards: CardStore | None = None
     conversation: Conversation = field(default_factory=Conversation)
     # Created on the first saved turn, so launching and quitting leaves no empty session.
     session_id: int | None = None
@@ -92,6 +99,98 @@ def _parse_id(arg: str | None) -> int | None:
         return int(arg) if arg is not None else None
     except ValueError:
         return None
+
+
+QUIZ_DEFAULT_CARDS = 20
+
+
+def _quiz(parts: list[str], state: ChatState, ask: Callable[[str], str]) -> str:
+    """Study due cards without the model. Every grade is saved immediately."""
+    if state.cards is None:
+        return "Flashcards are not configured."
+    course_code, count = None, QUIZ_DEFAULT_CARDS
+    for token in parts[1:]:
+        if token.isdigit():
+            count = max(1, min(int(token), 200))
+        else:
+            course_code = token
+    course_id = None
+    if course_code is not None:
+        if state.courses is None:
+            return "Courses are not configured."
+        try:
+            course_id = state.courses.get(course_code).id
+        except CourseNotFound:
+            return f"Course {course_code} not found."
+    queue = state.cards.due(course_id, limit=count)
+    if not queue:
+        upcoming = state.cards.next_due_date(course_id)
+        return "No cards due." + (f" Next ones are due on {upcoming}." if upcoming else " Ask the agent to make some.")
+    grades: Counter = Counter()
+    shown_again: set[int] = set()
+    try:
+        while queue:
+            card = queue.pop(0)
+            if ask(f"\nQ: {card.front}\n[Enter: show answer, q: stop] ").strip().lower() == "q":
+                break
+            source = f"\n   ({card.source})" if card.source else ""
+            while True:
+                answer = ask(f"A: {card.back}{source}\nGrade: 1 again, 2 hard, 3 good, 4 easy, q stop: ").strip().lower()
+                if answer == "q" or answer in {"1", "2", "3", "4"}:
+                    break
+            if answer == "q":
+                break
+            grade = int(answer)
+            state.cards.review(card.id, grade)
+            grades[GRADE_NAMES[grade]] += 1
+            if grade == 1 and card.id not in shown_again:
+                shown_again.add(card.id)
+                queue.append(card)  # once more at the end of this session
+    except (KeyboardInterrupt, EOFError):
+        pass
+    reviewed = sum(grades.values())
+    if not reviewed:
+        return "Stopped. Nothing was graded."
+    summary = ", ".join(f"{grades[name]} {name}" for name in ("again", "hard", "good", "easy") if grades[name])
+    upcoming = state.cards.next_due_date(course_id)
+    return f"Reviewed {reviewed} card(s): {summary}." + (f" Next due: {upcoming}." if upcoming else "")
+
+
+def _card_command(command: str, arg: str | None, state: ChatState, confirm: Callable[[str], bool]) -> str:
+    if state.cards is None:
+        return "Flashcards are not configured."
+    if command == "/cards":
+        course_id = None
+        if arg is not None:
+            if state.courses is None:
+                return "Courses are not configured."
+            try:
+                course_id = state.courses.get(arg).id
+            except CourseNotFound:
+                return f"Course {arg} not found."
+        cards = state.cards.list(course_id)
+        if not cards:
+            return "No flashcards yet. Ask the agent to make some from your documents."
+        return "\n".join(
+            f"  #{c.id}  due {c.due_date}  {f'[{c.course}] ' if c.course else ''}"
+            f"{c.front if len(c.front) <= 60 else c.front[:60] + '…'}"
+            for c in cards
+        )
+    target = _parse_id(arg)
+    if target is None:
+        return "Usage: /forget-card <id>"
+    try:
+        card = state.cards.get(target)
+    except CardNotFound:
+        return f"Card {target} not found."
+    if not confirm(f"Delete card #{target} and its review history? Q: {card.front!r}"):
+        return "Kept."
+    state.cards.forget(target)
+    try:
+        state.audit.write("card_forget", card_id=target)
+    except OSError:
+        pass
+    return f"Deleted card #{target}."
 
 
 def _course_command(command: str, arg: str | None, state: ChatState, confirm: Callable[[str], bool]) -> str:
@@ -154,10 +253,17 @@ def _doc_command(command: str, arg: str | None, state: ChatState, confirm: Calla
     return f"Removed document #{target} from the library."
 
 
-def handle_command(line: str, state: ChatState, confirm: Callable[[str], bool] = _confirm) -> str:
+def handle_command(line: str, state: ChatState, confirm: Callable[[str], bool] = _confirm,
+                   ask: Callable[[str], str] = input) -> str:
     """Run a /command typed by the user. Commands never reach the model."""
     parts = line.split()
     command, arg = parts[0].lower(), (parts[1] if len(parts) > 1 else None)
+
+    if command == "/quiz":
+        return _quiz(parts, state, ask)
+
+    if command in {"/cards", "/forget-card"}:
+        return _card_command(command, arg, state, confirm)
 
     if command == "/help":
         return HELP
@@ -264,6 +370,7 @@ def build_registry(settings: Settings, backup_dir: Path = DATA_DIR / "file-backu
     register_task_tools(registry)
     register_fact_tools(registry)
     register_course_tools(registry)
+    register_card_tools(registry)
     if settings.workspace_dir is not None:
         register_file_tools(registry, settings.workspace_dir)
         register_file_write_tools(registry, settings.workspace_dir, backup_dir)
@@ -296,6 +403,7 @@ def main() -> int:
         facts = FactStore(db)
         docs = DocumentStore(db)
         courses = CourseStore(db)
+        cards = CardStore(db)
         audit = AuditLog(DATA_DIR / "audit.jsonl")
     except (OSError, sqlite3.Error) as exc:
         print(f"Storage error: could not open {DATA_DIR}: {exc}", file=sys.stderr)
@@ -315,10 +423,12 @@ def main() -> int:
         safety=safety,
         logger=logger,
         confirm=_confirm,
-        tool_ctx=ToolContext(task_store=task_store, fact_store=facts, doc_store=docs, course_store=courses),
+        tool_ctx=ToolContext(task_store=task_store, fact_store=facts, doc_store=docs, course_store=courses,
+                             card_store=cards),
         audit=audit,
     )
-    state = ChatState(sessions=sessions, audit=audit, facts=facts, docs=docs, courses=courses)
+    state = ChatState(sessions=sessions, audit=audit, facts=facts, docs=docs, courses=courses,
+                      cards=cards)
 
     print("Personal AI Agent (quit / exit to stop)")
     print(f"model={settings.openai_model} autonomy={int(settings.autonomy_level)}")

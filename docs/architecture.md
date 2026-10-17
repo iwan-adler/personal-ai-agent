@@ -67,6 +67,21 @@ data is the user's own, so it does not taint. Only `/forget-course` deletes, and
 it only clears links. A re-imported document keeps its course unless a new one is
 given.
 
+### Tutor: flashcards (V0.6)
+
+`card_propose` (CONFIRMATION, `cards.write`) saves up to 20 cards per batch, each with
+question, answer and source citation; the prompt shows every card in full, and an
+exact duplicate question in the same course is skipped. `card_stats` (SAFE,
+`cards.read`) returns counts only: card text usually comes from documents (outside
+content) and never goes back into the model's context. Studying is the CLI's
+`/quiz`, which runs **without the model**, so it is free, fast and offline. Grades are
+four buttons mapped to SM-2 quality (again 1, hard 3, good 4, easy 5): the interval
+grows with the previous ease (1 day, 6 days, then interval x ease), "again" restarts
+the card and shows it once more at the end of the session, and the ease never falls
+below 1.3. In pure SM-2, "hard" still lengthens the interval; it only lowers the ease,
+so later intervals grow more slowly. Every grade is saved at once (migration 6:
+`cards`, plus a `reviews` log).
+
 ### Document library (V0.6, implements D4)
 
 `doc_import` (CONFIRMATION, `docs.write`) reads `.md`, `.txt` and `.pdf` from
@@ -280,7 +295,7 @@ Do not add these until the previous milestone is approved:
 |---|---|---|
 | V0.4 | ~~SQLite tasks, sessions, facts~~ done | Need a working loop first |
 | V0.5 | GitHub, files, Linux sandbox | Needs safety + confirmations |
-| V0.6 | ~~Document library~~, ~~courses~~ done; tutor (flashcards + /quiz) next | Needs durable facts |
+| V0.6 | ~~Document library, courses, tutor (flashcards + /quiz)~~ done | Needs durable facts |
 | V0.7 | Planner, opportunity scout, research | Needs tasks + citations rule |
 | V0.8 | FastAPI + HTMX, auth, dashboard (see D5; starts with pending approval + resume) | Needs data to show |
 | V0.9 | Docker, deploy, monitoring | Needs an API worth shipping |

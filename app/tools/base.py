@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ValidationError
 
 if TYPE_CHECKING:
+    from app.memory.cards import CardStore
     from app.memory.courses import CourseStore
     from app.memory.documents import DocumentStore
     from app.memory.facts import FactStore
@@ -34,6 +35,8 @@ class ToolContext:
     doc_store: DocumentStore | None = None
     # Courses; None means the optional course parameter cannot be resolved.
     course_store: CourseStore | None = None
+    # Flashcards; None means card tools report "not configured".
+    card_store: CardStore | None = None
 
 
 TRUNCATION_MARKER = "…[truncated]"
