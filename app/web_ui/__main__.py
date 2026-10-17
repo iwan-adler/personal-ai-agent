@@ -7,7 +7,7 @@ import sys
 
 from app.config import ConfigError, load_settings
 from app.logging_setup import setup_logging
-from app.main import DATA_DIR, build_agent
+from app.main import DATA_DIR, announce_auto_backup, build_agent
 from app.web_ui.security import Guard
 from app.web_ui.server import create_app
 
@@ -26,6 +26,7 @@ def main() -> int:
     except (OSError, sqlite3.Error) as exc:
         print(f"Storage error: could not open {DATA_DIR}: {exc}", file=sys.stderr)
         return 1
+    announce_auto_backup(settings)
     import uvicorn
 
     guard = Guard(port=settings.web_ui_port)

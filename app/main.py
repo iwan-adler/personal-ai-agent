@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 from app.agent.loop import AgentLoop
 from app.audit import AuditLog
+from app.backup import BackupError, maybe_auto_backup
 from app.config import PROJECT_ROOT, ConfigError, Settings, load_settings
 from app.conversation import Conversation
 from app.llm.client import Completer, LLMClient, LLMError
@@ -485,6 +486,17 @@ def build_agent(
     return agent, state
 
 
+def announce_auto_backup(settings: Settings, data_dir: Path = DATA_DIR) -> None:
+    """At most one backup a day, made at start; a failure warns but never stops Koda."""
+    try:
+        made = maybe_auto_backup(data_dir, settings.backup_dir or data_dir / "backups")
+    except (BackupError, OSError, sqlite3.Error) as exc:
+        print(f"(Automatic backup failed: {exc})", file=sys.stderr)
+        return
+    if made is not None:
+        print(f"Backup saved: {made}")
+
+
 def main() -> int:
     try:
         settings = load_settings()
@@ -499,6 +511,7 @@ def main() -> int:
         print(f"Storage error: could not open {DATA_DIR}: {exc}", file=sys.stderr)
         return 1
 
+    announce_auto_backup(settings)
     print("Personal AI Agent (quit / exit to stop)")
     print(f"model={settings.openai_model} autonomy={int(settings.autonomy_level)}")
     print(f"data={state.sessions.db.path} audit={state.audit.path}")

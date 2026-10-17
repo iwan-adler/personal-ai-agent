@@ -72,6 +72,38 @@ class Settings(BaseModel):
     web_ui_port: int = Field(default=8765, ge=1024, le=65535)
     # The only folder the file tools can reach; None means no file tools at all.
     workspace_dir: Path | None = None
+    # Where backups go (app/backup.py); None means data/backups.
+    backup_dir: Path | None = None
+
+    @field_validator("backup_dir", mode="before")
+    @classmethod
+    def _empty_backup_none(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("backup_dir")
+    @classmethod
+    def _backup_dir_ok(cls, value: Path | None) -> Path | None:
+        if value is None:
+            return None
+        if not value.is_absolute():
+            raise ValueError("BACKUP_DIR must be an absolute path")
+        if not value.is_dir():
+            raise ValueError("BACKUP_DIR must be an existing folder")
+        return value.resolve(strict=True)
+
+    @model_validator(mode="after")
+    def _backups_outside_workspace(self) -> Settings:
+        # Backups hold every message and fact; the file tools must never see them.
+        if (
+            self.backup_dir is not None
+            and self.workspace_dir is not None
+            and self.backup_dir.is_relative_to(self.workspace_dir)
+        ):
+            raise ValueError("BACKUP_DIR may not be inside WORKSPACE_DIR")
+        return self
+
     # Study hours per weekday, Monday first; None means the planner assumes a default.
     study_hours: tuple[float, float, float, float, float, float, float] | None = None
     # Domains web_fetch may reach (subdomains included); empty means no web tools (D6).
@@ -315,6 +347,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
             max_history_messages=_int_env("MAX_HISTORY_MESSAGES", 20),
             web_ui_port=_int_env("WEB_UI_PORT", 8765),
             workspace_dir=os.getenv("WORKSPACE_DIR"),
+            backup_dir=os.getenv("BACKUP_DIR"),
             study_hours=os.getenv("STUDY_HOURS", ""),
             web_allowlist=os.getenv("WEB_ALLOWLIST", ""),
             feeds=os.getenv("FEEDS", ""),

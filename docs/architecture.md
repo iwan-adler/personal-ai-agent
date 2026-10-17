@@ -85,6 +85,20 @@ that pass the same URL check are returned. For feeds, `parse_xml_safely` refuses
 any DOCTYPE or ENTITY declaration and non-ASCII-compatible encodings before the
 standard parser (expat 2.8, which itself refuses entity expansion) sees them.
 
+### Backups and start scripts (V0.9, D7)
+
+`app/backup.py` writes `koda-backup-YYYYmmdd-HHMMSS.zip` with `agent.db` (copied via
+`sqlite3.Connection.backup`, consistent while Koda runs) and `audit.jsonl`, built in a
+temporary file and moved into place, keeping the newest 10. The CLI and web UI call
+`maybe_auto_backup` at start (at most once per 24 h; a failure only warns).
+`verify_backup` checks the zip holds only the known members, that the database passes
+`integrity_check` and is not from a newer schema. Restore verifies, asks, backs up the
+current state, then writes **only the known member names** (never `extractall`, so a
+crafted zip cannot write elsewhere). `BACKUP_DIR` must be absolute, existing and not
+inside `WORKSPACE_DIR`, so the file tools can never list backups. `scripts/` holds
+start scripts for Windows (`.cmd`) and macOS/Linux (`.sh`, executable, LF endings
+enforced by `.gitattributes`).
+
 ### Health check (V0.9, monitoring)
 
 `python -m app.doctor` (`app/doctor.py`) runs read-only checks: settings load
@@ -429,7 +443,7 @@ Do not add these until the previous milestone is approved:
 | V0.6 | ~~Document library, courses, tutor (flashcards + /quiz)~~ done | Needs durable facts |
 | V0.7 | ~~Planner, web access (D6), opportunity scout, citations rule~~ done | Needs tasks + citations rule |
 | V0.8 | ~~Pending approval + resume, FastAPI + HTMX UI with token auth, dashboard~~ done (D5) | Needs data to show |
-| V0.9 | Local operations per D7: health check, backups, start scripts (no deployment, no Docker) | Needs an API worth shipping |
+| V0.9 | ~~Local operations per D7: health check, backups, start scripts~~ done (no deployment, no Docker) | Needs an API worth shipping |
 | V1.0 | Personal AI OS | Composition of the above |
 
 **Not now:** PostgreSQL, Redis, Neo4j, LangChain-as-core, voice, email sending, unrestricted shell, dashboard.

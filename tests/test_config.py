@@ -66,6 +66,7 @@ def env_file(monkeypatch, tmp_path):
         "FEEDS",
         "INTERESTS",
         "WEB_UI_PORT",
+        "BACKUP_DIR",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")

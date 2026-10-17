@@ -8,7 +8,7 @@ The model never runs anything itself. Each turn it replies with a JSON decision:
 
 It works with OpenAI, any OpenAI-compatible API (Groq and others), or a **free local model through Ollama**.
 
-> Status: milestone **V0.8**: conversation, tools, agent loop and audit log; tasks, sessions and facts in SQLite (V0.4); workspace file tools and GitHub (V0.5, the Linux sandbox is postponed); a document library, courses and flashcards (V0.6); a planner, allowlisted web access, an opportunity scout and a citation check (V0.7); a local web interface with approvals and a dashboard (V0.8). Docker and deployment (V0.9) are **not built yet**. See the [roadmap](docs/architecture.md).
+> Status: milestone **V0.9**: conversation, tools, agent loop and audit log; tasks, sessions and facts in SQLite (V0.4); workspace file tools and GitHub (V0.5, the Linux sandbox is postponed); a document library, courses and flashcards (V0.6); a planner, allowlisted web access, an opportunity scout and a citation check (V0.7); a local web interface with approvals and a dashboard (V0.8); local operations: health check, automatic backups and start scripts (V0.9). By design (D7) Koda stays on your computer: there is no deployment. See the [roadmap](docs/architecture.md).
 
 ## Why build it this way
 
@@ -158,6 +158,8 @@ Run it:
 python -m app.main
 ```
 
+Or double-click `scripts\koda.cmd` (chat) or `scripts\koda-web.cmd` (web interface) on Windows, or run `scripts/koda.sh` / `scripts/koda-web.sh` on macOS and Linux. They use the project's `.venv`, and you can pin a shortcut to them.
+
 Type a message, answer `y`/`N` when a tool needs confirmation, and type `quit` to exit. Each turn prints the run status, token usage and a one-line summary per step.
 
 Commands (handled by the CLI, never sent to the model):
@@ -194,6 +196,19 @@ python -m app.web_ui
 
 Prints a one-time link such as `http://127.0.0.1:8765/?token=…`. Opening it signs you in (the token moves into an HttpOnly, SameSite=Strict cookie and leaves the address bar). The page offers the same agent as the CLI: when a tool needs your approval, a card shows exactly what the terminal would ask, with **Approve** and **Decline**; the run continues where it paused. A read-only **Dashboard** shows this week's plan with its warnings, open tasks, courses, flashcards due and new opportunities. Keep the link private: anyone with it can use the agent while the server runs. The server only listens on `127.0.0.1`, refuses requests for other host names, other sites' form posts and pages without the token, and renders every model and tool text escaped under a strict Content-Security-Policy.
 
+### Backups
+
+Koda backs up `data/` automatically when the CLI or web interface starts, at most once a day, and keeps the newest 10 (in `data/backups/`, or `BACKUP_DIR`). The database is copied with SQLite's backup API, so a backup is consistent even while Koda runs.
+
+```bash
+python -m app.backup                 # back up now
+python -m app.backup --list
+python -m app.backup --verify FILE   # check a backup
+python -m app.backup --restore FILE  # asks first
+```
+
+Restoring checks the backup first (integrity, schema version, no unexpected files), asks, and backs up your current state before replacing anything. Stop Koda before restoring. Backups contain your data unencrypted, like `data/` itself.
+
 ### Health check
 
 ```bash
@@ -222,6 +237,7 @@ All settings live in `.env` ([`.env.example`](.env.example) documents each one).
 | `MAX_REPAIR_ATTEMPTS` | `2` | Times to ask the model to fix malformed JSON (0–5) |
 | `LLM_TIMEOUT_SECONDS` | `60` | Per API call; the SDK retries up to 2 more times |
 | `STUDY_HOURS` | *(empty)* | Study hours per weekday for the planner, e.g. `mon=2,tue=2,wed=3,thu=2,fri=1,sat=4,sun=0` (0–16 each, missing days are 0). Empty means 2 h every day, and the plan says so |
+| `BACKUP_DIR` | *(empty)* | Absolute path of an existing folder for backups, not inside `WORKSPACE_DIR`. Empty means `data/backups/` |
 | `WEB_UI_PORT` | `8765` | Port of the local web interface (1024–65535); it only ever listens on `127.0.0.1` |
 | `MAX_HISTORY_MESSAGES` | `20` | Recent messages sent to the model each turn (4–200) |
 | `WORKSPACE_DIR` | *(empty)* | Absolute path of the only folder the file tools may read, e.g. `C:\Users\you\Documents\koda-workspace`. Empty means no file tools. Not allowed: a drive root, your home folder itself, or a folder containing this project |
@@ -260,7 +276,7 @@ tail -n 20 data/audit.jsonl               # macOS / Linux
 python -m pytest
 ```
 
-There are 750 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
+There are 765 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
 
 - the agent loop: repair of malformed output, budgets, repeated-failure and repeated-call stops, the history window, and tool output that tries to break out of its `<tool_result>` block
 - the safety layer: every autonomy level, missing permissions, `HIGH_RISK` always confirming, Level 4 grants, duplicate writes
@@ -270,6 +286,7 @@ There are 750 tests (counting parametrised cases), which run in under a minute w
 - the task workflow end to end: request → confirmation → SQLite → audit, including declined confirmations, invalid dates, missing permissions, persistence across sessions, and audit-write failures (the tool must not run)
 - sessions and facts: tool results never saved, FTS5 syntax in search queries treated as plain text, saving facts always asks, deleting only by command, schema migrations keeping old data
 - files: Windows path tricks (`..`, drives, UNC, `file:stream`, `CON`, trailing dots, junctions, hard links) refused, overwrites only with the right checksum, backups, nothing half-written
+- backups: consistent copies while the database is open, keeping the newest 10, once-a-day automatic backups, refusing corrupt, newer or tampered backups (including zip-slip paths), and a restore that asks and keeps your previous state
 - the web interface, over real HTTP against a local server: wrong Host headers (DNS rebinding), missing tokens, cross-site posts, CSRF, escaping of scripts and fake buttons, strict security headers, approvals that are forged or replayed, localhost-only binding
 - deferred approvals: pausing a run, continuing the same run after the answer, wrong one-time values refused without cancelling, answers counting once, expiry, grants, taint and duplicate history surviving the pause
 - the citations rule: only sources read in the same request count, harmless formatting differences still match, invented sources flagged, ordinary brackets ignored
