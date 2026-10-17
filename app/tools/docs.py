@@ -7,8 +7,11 @@ Risk choices:
 - doc_search / doc_list -> SAFE, docs.read, reads_outside_content: document
   text and names are written by others (slides, PDFs) and may carry injected
   instructions, so they taint the request and reach the model as <tool_result>.
-- PDFs are parsed by app/tools/pdf_extract.py in a separate process through
-  run_command: isolated, no keys in its environment, killed on timeout.
+- PDFs are parsed by app/tools/pdf_extract.py, Word and PowerPoint files by
+  app/tools/office_extract.py, each in a separate process through run_command:
+  isolated, no keys in its environment, killed on timeout.
+- The stored kind is the citation layout: 'pdf' = pages (PDF pages, slides),
+  'text' = lines (.md, .txt, .docx).
 - Registered only when WORKSPACE_DIR is set.
 """
 
@@ -30,7 +33,9 @@ from app.tools.process import run_command
 from app.tools.workspace import WorkspaceError, check_relative_path, resolve_in_workspace
 
 LIBRARY = "library"
-SUPPORTED = {".md": "text", ".txt": "text", ".pdf": "pdf"}
+SUPPORTED = {".md": "text", ".txt": "text", ".pdf": "pdf", ".docx": "docx", ".pptx": "pptx"}
+STORED_KIND = {"text": "text", "pdf": "pdf", "docx": "text", "pptx": "pdf"}  # pages or lines
+SUPPORTED_NAMES = ".md, .txt, .pdf, .docx and .pptx"
 MAX_FILES = 200
 MAX_TEXT_BYTES = 5_000_000
 MAX_PDF_BYTES = 50_000_000
@@ -40,6 +45,7 @@ PDF_TIMEOUT_SECONDS = 60.0
 CHUNK_CHARS = 1_500
 HIT_MAX_CHARS = 1_200
 EXTRACTOR = Path(__file__).with_name("pdf_extract.py")
+OFFICE_EXTRACTOR = Path(__file__).with_name("office_extract.py")
 _SUFFIX = re.compile(r"\.[A-Za-z0-9]{1,5}$")
 
 
@@ -68,7 +74,7 @@ class DocImportInput(BaseModel):
             raise ValueError(str(exc)) from None
         suffix = _SUFFIX.search(relative.rsplit("/", 1)[-1])
         if suffix and suffix.group(0).lower() not in SUPPORTED:
-            raise ValueError("Only .md, .txt and .pdf files can be imported.")
+            raise ValueError(f"Only {SUPPORTED_NAMES} files can be imported.")
         return relative
 
 
@@ -143,7 +149,7 @@ def _files(root: Path, relative: str) -> tuple[list[tuple[str, Path]], Counter]:
     for path in candidates:
         if path.suffix.lower() not in SUPPORTED:
             if target.is_file():
-                raise WorkspaceError("Only .md, .txt and .pdf files can be imported.")
+                raise WorkspaceError(f"Only {SUPPORTED_NAMES} files can be imported.")
             continue
         rel = path.relative_to(library).as_posix()
         try:
@@ -204,6 +210,39 @@ def extract_pdf_pages(path: Path) -> list[str]:
     return [str(page) for page in payload.get("pages", [])]
 
 
+def extract_office(path: Path, kind: str) -> list[str]:
+    """Slides (.pptx) or the whole text (.docx), parsed in an isolated process."""
+    try:
+        result = run_command(
+            [sys.executable, "-I", str(OFFICE_EXTRACTOR), str(path), kind, str(MAX_EXTRACTED_CHARS)],
+            timeout_seconds=PDF_TIMEOUT_SECONDS,
+            max_output_chars=MAX_EXTRACTED_CHARS * 2,
+        )
+    except ToolTimeout:
+        raise WorkspaceError(f"{kind} took too long") from None
+    try:
+        payload = json.loads(result.stdout)
+    except ValueError:
+        raise WorkspaceError(f"{kind} unreadable") from None
+    if "error" in payload:
+        raise WorkspaceError(f"{kind} {str(payload['error']).replace('_', ' ')}")
+    return [str(page) for page in payload.get("pages", [])]
+
+
+def file_chunks(real: Path, kind: str, data: bytes) -> tuple[list[Chunk], int | None]:
+    """(chunks, page count) for one supported file; raises WorkspaceError if unreadable."""
+    if kind == "pdf":
+        pages = extract_pdf_pages(real)
+        return _pdf_chunks(pages), len(pages)
+    if kind == "pptx":
+        slides = extract_office(real, "pptx")
+        return _pdf_chunks(slides), len(slides)
+    if kind == "docx":
+        text = "\n".join(extract_office(real, "docx"))
+        return _text_chunks(text.encode("utf-8")), None
+    return _text_chunks(data), None
+
+
 def _pdf_chunks(pages: list[str]) -> list[Chunk]:
     chunks: list[Chunk] = []
     for number, text in enumerate(pages, start=1):
@@ -223,7 +262,7 @@ def _doc_import(root: Path, store: DocumentStore, args: DocImportInput,
     for rel, real in files:
         kind = SUPPORTED[real.suffix.lower()]
         size = real.stat().st_size
-        if size > (MAX_PDF_BYTES if kind == "pdf" else MAX_TEXT_BYTES):
+        if size > (MAX_TEXT_BYTES if kind == "text" else MAX_PDF_BYTES):
             problems["too large"] += 1
             continue
         data = real.read_bytes()
@@ -231,22 +270,16 @@ def _doc_import(root: Path, store: DocumentStore, args: DocImportInput,
         if store.sha256_of(rel) == sha256:
             # Still lets an explicit course be attached to an unchanged document.
             if course_id is not None:
-                store.save(rel, kind, sha256, size, None, [], course_id)
+                store.save(rel, STORED_KIND[kind], sha256, size, None, [], course_id)
             status["unchanged"] += 1
             continue
-        page_count = None
-        if kind == "pdf":
-            try:
-                page_texts = extract_pdf_pages(real)
-            except WorkspaceError as exc:
-                problems[str(exc)] += 1
-                continue
-            chunks = _pdf_chunks(page_texts)
-            page_count = len(page_texts)
-            pages += page_count
-        else:
-            chunks = _text_chunks(data)
-        status[store.save(rel, kind, sha256, size, page_count, chunks, course_id)] += 1
+        try:
+            chunks, page_count = file_chunks(real, kind, data)
+        except WorkspaceError as exc:
+            problems[str(exc)] += 1
+            continue
+        pages += page_count or 0
+        status[store.save(rel, STORED_KIND[kind], sha256, size, page_count, chunks, course_id)] += 1
         chunk_count += len(chunks)
     return DocImportOutput(
         imported=status["imported"],
@@ -297,7 +330,7 @@ def register_doc_tools(registry: ToolRegistry, workspace: Path) -> None:
         Tool(
             name="doc_import",
             description=(
-                "Import .md, .txt and .pdf files from the workspace's library/ folder into the "
+                f"Import {SUPPORTED_NAMES} files from the workspace's library/ folder into the "
                 "searchable document library. Unchanged files are skipped."
             ),
             input_model=DocImportInput,

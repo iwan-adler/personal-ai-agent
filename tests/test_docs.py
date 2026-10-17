@@ -118,7 +118,7 @@ def test_search_syntax_is_plain_text(ws, store, query):
 # --- Refused or skipped ----------------------------------------------------------------
 
 
-@pytest.mark.parametrize("path", ["../outside.pdf", "dbms/../../x.pdf", ".env", "slides.docx", "run.exe",
+@pytest.mark.parametrize("path", ["../outside.pdf", "dbms/../../x.pdf", ".env", "slides.key", "run.exe",
                                   "C:\\x.pdf", "notes.md:hidden", "id_rsa"])
 def test_bad_import_paths_are_denied_during_review(path):
     """Security: denied before any prompt or file access."""
