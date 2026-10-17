@@ -2,3 +2,4 @@
 # Windows batch files are safest with CRLF.
 *.sh text eol=lf
 *.cmd text eol=crlf
+*.ico binary

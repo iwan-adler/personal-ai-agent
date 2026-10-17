@@ -161,6 +161,8 @@ python -m app.main
 
 Or double-click `scripts\koda.cmd` (chat) or `scripts\koda-web.cmd` (web interface) on Windows, or run `scripts/koda.sh` / `scripts/koda-web.sh` on macOS and Linux. They use the project's `.venv`, and you can pin a shortcut to them.
 
+**As a desktop app (Windows):** double-click `scripts\install-shortcut.cmd` once. It adds a **Koda** icon to your Desktop and Start menu that opens Koda in its own window, without tabs, an address bar or a console; closing the window stops Koda. It needs Microsoft Edge, which Windows includes.
+
 Type a message, answer `y`/`N` when a tool needs confirmation, and type `quit` to exit. Each turn prints the run status, token usage and a one-line summary per step.
 
 Commands (handled by the CLI, never sent to the model):
@@ -196,6 +198,8 @@ python -m app.web_ui
 ```
 
 Prints a one-time link such as `http://127.0.0.1:8765/?token=…`. Opening it signs you in (the token moves into an HttpOnly, SameSite=Strict cookie and leaves the address bar). The page offers the same agent as the CLI: when a tool needs your approval, a card shows exactly what the terminal would ask, with **Approve** and **Decline**; the run continues where it paused. A read-only **Dashboard** shows this week's plan with its warnings, open tasks, courses, flashcards due and new opportunities. Keep the link private: anyone with it can use the agent while the server runs. The server only listens on `127.0.0.1`, refuses requests for other host names, other sites' form posts and pages without the token, and renders every model and tool text escaped under a strict Content-Security-Policy.
+
+`python -m app.web_ui --app` (what the desktop icon runs) opens the same page in an Edge app window with its **own profile** in `data/app-window/` and extensions turned off, so your normal browser's extensions never see Koda. Koda stops when that window is closed. The sign-in link is passed on Edge's command line, where other programs of your Windows user could read it; they could read `data/` anyway, and the token is new on every start.
 
 ### Backups
 
@@ -278,7 +282,7 @@ tail -n 20 data/audit.jsonl               # macOS / Linux
 python -m pytest
 ```
 
-There are 790 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
+There are 805 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
 
 - the agent loop: repair of malformed output, budgets, repeated-failure and repeated-call stops, the history window, and tool output that tries to break out of its `<tool_result>` block
 - the safety layer: every autonomy level, missing permissions, `HIGH_RISK` always confirming, Level 4 grants, duplicate writes

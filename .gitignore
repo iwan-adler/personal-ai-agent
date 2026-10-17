@@ -32,6 +32,7 @@ data/*.db-journal
 data/*.jsonl
 data/file-backups/
 data/backups/
+data/app-window/
 
 .freebuff/
 OneNote Notebooks/

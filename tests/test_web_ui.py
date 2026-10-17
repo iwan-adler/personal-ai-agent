@@ -254,7 +254,7 @@ def test_the_server_only_listens_on_localhost(monkeypatch, tmp_path, capsys):
                             settings, logger, defer_approvals=defer_approvals, data_dir=tmp_path,
                             llm=FakeLLMClient()))
     monkeypatch.setattr(uvicorn, "run", lambda app, **kw: calls.update(kw))
-    assert web_main.main() == 0
+    assert web_main.main([]) == 0
     assert calls["host"] == "127.0.0.1" and calls["access_log"] is False and calls["proxy_headers"] is False
     out = capsys.readouterr().out
     assert re.search(r"http://127\.0\.0\.1:8765/\?token=\S{40,}", out)

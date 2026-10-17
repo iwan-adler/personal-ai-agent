@@ -8,6 +8,9 @@ and their reasons are in [docs/architecture.md](docs/architecture.md).
 - `sandbox_run` (V0.5 slice 6): shell commands in a throwaway Docker container on a
   copy of the workspace, with no network, a read-only system, an unprivileged user and
   resource limits. `HIGH_RISK`; needs Docker Desktop and a digest-pinned `SANDBOX_IMAGE`.
+- Koda as a desktop app on Windows: `scripts\install-shortcut.cmd` adds a Koda icon that
+  opens the web UI in its own Edge window (own profile, no extensions, no console) and
+  stops Koda when the window is closed (`python -m app.web_ui --app`).
 
 ## 1.0.1 (2026-10-17)
 

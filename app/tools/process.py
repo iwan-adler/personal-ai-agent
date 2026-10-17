@@ -110,3 +110,24 @@ def run_command(
         stdout=_truncate(completed.stdout, max_output_chars),
         stderr=_truncate(completed.stderr, max_output_chars),
     )
+
+
+def start_detached(program: Path, args: Sequence[str]) -> subprocess.Popen:
+    """Start a fixed, trusted program without waiting for it (the app window).
+
+    Same rules as run_command (list arguments, no shell, allowlisted
+    environment), but no timeout: the caller owns the returned process. Only
+    for programs Koda chose itself by absolute path, never for model input.
+    """
+    if not program.is_absolute() or not program.is_file():
+        raise ValueError("program must be an existing file given by absolute path.")
+    if isinstance(args, (str, bytes)) or not all(isinstance(arg, str) for arg in args):
+        raise TypeError("args must be a list of strings.")
+    return subprocess.Popen(
+        [str(program), *args],
+        shell=False,
+        env=safe_env(),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
