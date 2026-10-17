@@ -176,6 +176,32 @@
     });
   }
 
+  // Flashcards: Space shows the answer, 1-4 grade it.
+  function revealAnswer() {
+    var answer = document.getElementById("answer");
+    var button = document.getElementById("reveal");
+    if (!answer || !answer.hidden) return false;
+    answer.hidden = false;
+    if (button) button.remove();
+    return true;
+  }
+
+  document.addEventListener("click", function (e) {
+    if (e.target && e.target.closest && e.target.closest("#reveal")) revealAnswer();
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (!document.getElementById("flashcard") || e.ctrlKey || e.altKey || e.metaKey) return;
+    var tag = (e.target && e.target.tagName) || "";
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    if ((e.key === " " || e.key === "Enter") && revealAnswer()) { e.preventDefault(); return; }
+    var answer = document.getElementById("answer");
+    if (answer && !answer.hidden && /^[1-4]$/.test(e.key)) {
+      var button = document.querySelector('.grades button[data-key="' + e.key + '"]');
+      if (button && !button.disabled) { e.preventDefault(); button.click(); }
+    }
+  });
+
   document.addEventListener("keydown", function (e) {
     if (e.target && e.target.id === "message" && e.key === "Enter" && !e.shiftKey && !e.isComposing) {
       e.preventDefault();

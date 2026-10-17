@@ -1,0 +1,5 @@
+<div class="stats" id="card-stats"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <div class="stat"><span class="num">{{ stats.due }}</span><span class="lbl">due today</span></div>
+  <div class="stat"><span class="num">{{ stats.reviewed_today }}</span><span class="lbl">reviewed today</span></div>
+  <div class="stat"><span class="num">{{ stats.total }}</span><span class="lbl">cards in total</span></div>
+</div>

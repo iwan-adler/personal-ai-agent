@@ -125,7 +125,7 @@
     <h2>Flashcards</h2>
     {% if cards %}
       <p>{{ cards.due }} due today · {{ cards.reviewed_today }} reviewed today · {{ cards.total }} in total.</p>
-      <p class="hint">Study them with <code>/quiz</code> in the terminal, or ask Koda to make cards from your notes.</p>
+      {% if cards.due %}<a class="button primary" href="/cards">🃏 Practice now</a>{% else %}<p class="hint">Ask Koda in the chat to make cards from your notes. <a href="/cards">Open flashcards</a></p>{% endif %}
     {% else %}<p class="hint">Flashcards are not configured.</p>{% endif %}
   </section>
   <section class="card">

@@ -1,0 +1,41 @@
+{% if card %}
+<section class="card flashcard" id="flashcard" data-card="{{ card.id }}">
+  <div class="flashcard-top">
+    {% if card.course %}<span class="tag">{{ card.course }}</span>{% endif %}
+    <span class="hint small">{{ remaining }} left in this round · {{ reviewed }} reviewed</span>
+  </div>
+  <div class="face front md">{{ card.front|md }}</div>
+  <button type="button" class="primary reveal" id="reveal">Show answer <kbd>Space</kbd></button>
+  <div class="answer" id="answer" hidden>
+    <div class="face back md">{{ card.back|md }}</div>
+    {% if card.source %}<p class="hint small source">Source: {{ card.source }}</p>{% endif %}
+    <form class="grades" hx-post="/cards/{{ card.id }}/grade" hx-target="#practice" hx-disabled-elt="find button">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="course" value="{{ course_id }}">
+      <input type="hidden" name="again" value="{{ again }}">
+      <input type="hidden" name="repeated" value="{{ repeated }}">
+      <input type="hidden" name="tally" value="{{ tally.again }},{{ tally.hard }},{{ tally.good }},{{ tally.easy }}">
+      <button type="submit" name="grade" value="1" class="grade again" data-key="1">Again<small>{{ intervals[1] }}</small></button>
+      <button type="submit" name="grade" value="2" class="grade hard" data-key="2">Hard<small>{{ intervals[2] }}</small></button>
+      <button type="submit" name="grade" value="3" class="grade good" data-key="3">Good<small>{{ intervals[3] }}</small></button>
+      <button type="submit" name="grade" value="4" class="grade easy" data-key="4">Easy<small>{{ intervals[4] }}</small></button>
+    </form>
+  </div>
+</section>
+{% else %}
+<section class="card done-card">
+  <div class="empty">
+    <div class="empty-ico">🎉</div>
+    <h2>Round finished</h2>
+    {% if reviewed %}
+      <p>You reviewed <strong>{{ reviewed }}</strong> card{{ "s" if reviewed != 1 }}:
+        {% for name in ["again", "hard", "good", "easy"] if tally[name] %}{{ tally[name] }} {{ name }}{% if not loop.last %}, {% endif %}{% endfor %}.</p>
+    {% else %}
+      <p>No cards were due.</p>
+    {% endif %}
+    {% if next_due %}<p class="hint">Next cards are due on {{ next_due }}.</p>{% endif %}
+    <a class="button primary" href="/cards">Back to flashcards</a>
+  </div>
+</section>
+{% endif %}
+{% with oob = true %}{% include "_card_stats.html" %}{% endwith %}

@@ -22,6 +22,7 @@ from app.main import ChatState
 from app.memory.sessions import SessionNotFound
 from app.tutor import Tutor
 from app.web_ui import markdown
+from app.web_ui.cards_pages import add_card_routes
 from app.web_ui.dashboard_pages import add_dashboard_routes
 from app.web_ui.study_pages import add_study_routes
 from app.web_ui.security import COOKIE, SECURITY_HEADERS, Guard
@@ -155,6 +156,8 @@ def create_app(agent: AgentLoop, state: ChatState, guard: Guard) -> FastAPI:
         return turn(request, run, None)
 
     add_dashboard_routes(app, state=state, render=render, csrf_ok=guard.csrf_ok, plain=_plain)
+    if state.cards is not None:
+        add_card_routes(app, state=state, render=render, csrf_ok=guard.csrf_ok, plain=_plain)
     if state.study is not None:
         add_study_routes(app, state=state, tutor=Tutor(agent.llm), render=render, csrf_ok=guard.csrf_ok,
                          plain=_plain, secure=_secure)

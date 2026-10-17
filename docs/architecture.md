@@ -474,6 +474,10 @@ The web UI became the main way to use Koda, so it grew three parts:
   always counts as incorrect, texts are cut to fixed lengths, malformed output gets one
   repair and is then shown as it came. Study time is the time between your actions,
   at most 5 minutes each. If the model call fails, nothing is stored.
+- **Flashcards** (`app/web_ui/cards_pages.py`): `/quiz` in the window, no model. The
+  round state (tally, cards answered "again") travels in hidden form fields, checked
+  as digit lists, so the server holds nothing between clicks; a tampered list can only
+  change which of your own due cards is shown next.
 - **Dashboard edits tasks** (D5 update): create, edit, complete, reopen and delete.
   Alternative considered: keep the dashboard read-only and route every change through
   the chat. Rejected for tasks because these are the user's own clicks with the exact

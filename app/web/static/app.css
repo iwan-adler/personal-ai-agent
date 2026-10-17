@@ -325,3 +325,30 @@ input[type=date] { color-scheme: light dark; }
 .subject-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .day.is-today { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 .welcome-card .hint { color: rgba(255, 255, 255, .8); }
+
+/* Flashcards */
+a.button.primary { background: var(--accent); color: var(--accent-fg); }
+a.button.primary:hover { filter: brightness(1.1); }
+kbd { font: 11.5px Consolas, ui-monospace, monospace; border: 1px solid var(--border); border-bottom-width: 2px;
+      border-radius: 5px; padding: 0 5px; background: var(--bg); color: var(--fg); }
+button kbd { background: rgba(255, 255, 255, .18); border-color: rgba(255, 255, 255, .3); color: inherit; margin-left: 6px; }
+.practice-area { width: 100%; max-width: 760px; margin: 0 auto; }
+.start-form { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
+.flashcard { padding: 22px 26px; animation: fade-in .2s ease-out; }
+.flashcard-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 14px; min-height: 22px; }
+.face { font-size: 19px; line-height: 1.5; }
+.face.front { min-height: 70px; padding-bottom: 16px; }
+.face.back { border-top: 1px dashed var(--border); padding-top: 16px; font-size: 17px; }
+.reveal { width: 100%; padding: 12px; font-size: 15px; }
+.answer { animation: fade-in .2s ease-out; }
+.source { margin: 10px 0 0; }
+.grades { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 18px; }
+.grade { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 6px; font-weight: 600; border-width: 1px; }
+.grade small { font-weight: 400; font-size: 12px; color: var(--muted); }
+.grade.again { border-color: var(--bad); color: var(--bad); }
+.grade.hard { border-color: #d97706; color: #d97706; }
+.grade.good { border-color: var(--ok); color: var(--ok); }
+.grade.easy { border-color: var(--accent); color: var(--accent); }
+.grade:hover { background: var(--accent-soft); }
+.done-card h2 { margin: 4px 0 8px; }
+@media (max-width: 560px) { .grades { grid-template-columns: repeat(2, 1fr); } }

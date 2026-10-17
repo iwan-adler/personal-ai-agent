@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Koda · Flashcards{% endblock %}
+{% block body_class %}scroll-page cards-page{% endblock %}
+{% block content %}
+<header class="page-head">
+  <h1>Flashcards</h1>
+  <p class="hint">Spaced repetition: grade how well you knew each answer and Koda schedules the next review. No AI involved, so it also works offline.</p>
+</header>
+
+{% include "_card_stats.html" %}
+
+<div id="practice" class="practice-area">
+  {% if stats.total == 0 %}
+    <section class="card empty-card">
+      <div class="empty">
+        <div class="empty-ico">🃏</div>
+        <p>You have no flashcards yet. Ask Koda in the chat to make some, for example<br>
+          <em>"Make 10 flashcards about SQL joins for DBMS"</em> or <em>"Make flashcards from lecture3.pdf"</em>.</p>
+        <a class="button primary" href="/">Go to chat</a>
+      </div>
+    </section>
+  {% elif stats.due == 0 %}
+    <section class="card empty-card">
+      <div class="empty">
+        <div class="empty-ico">🎉</div>
+        <p>All caught up: nothing is due today.{% if next_due %} The next cards are due on <strong>{{ next_due }}</strong>.{% endif %}</p>
+      </div>
+    </section>
+  {% else %}
+    <section class="card start-card">
+      <h2>Practice due cards</h2>
+      <form hx-post="/cards/practice" hx-target="#practice" class="start-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <div class="segmented">
+          <label><input type="radio" name="course" value="" checked><span>All ({{ stats.due }})</span></label>
+          {% for c in courses if c.total %}
+            <label><input type="radio" name="course" value="{{ c.id }}"><span>{{ c.code }} ({{ c.due }})</span></label>
+          {% endfor %}
+        </div>
+        <button type="submit" class="primary">Start practice</button>
+      </form>
+      <p class="hint small">Keys: <kbd>Space</kbd> shows the answer, <kbd>1</kbd>–<kbd>4</kbd> grade it.</p>
+    </section>
+  {% endif %}
+</div>
+{% endblock %}
