@@ -30,6 +30,8 @@ from app.web.fetcher import WebError, check_url
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 MAX_GITHUB_REPOS = 20
+# A sandbox image must be pinned by digest, so a changed image is never run unnoticed.
+SANDBOX_IMAGE_PATTERN = r"^[a-z0-9][a-z0-9._/:-]{0,200}@sha256:[0-9a-f]{64}$"
 MAX_WEB_DOMAINS = 50
 MAX_FEEDS = 20
 MAX_INTERESTS = 50
@@ -72,6 +74,8 @@ class Settings(BaseModel):
     web_ui_port: int = Field(default=8765, ge=1024, le=65535)
     # The only folder the file tools can reach; None means no file tools at all.
     workspace_dir: Path | None = None
+    # Container image for sandbox_run, pinned by digest; None means no sandbox.
+    sandbox_image: str | None = Field(default=None, pattern=SANDBOX_IMAGE_PATTERN)
     # Where backups go (app/backup.py); None means data/backups.
     backup_dir: Path | None = None
 
@@ -348,6 +352,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
             web_ui_port=_int_env("WEB_UI_PORT", 8765),
             workspace_dir=os.getenv("WORKSPACE_DIR"),
             backup_dir=os.getenv("BACKUP_DIR"),
+            sandbox_image=os.getenv("SANDBOX_IMAGE", "").strip() or None,
             study_hours=os.getenv("STUDY_HOURS", ""),
             web_allowlist=os.getenv("WEB_ALLOWLIST", ""),
             feeds=os.getenv("FEEDS", ""),

@@ -33,6 +33,7 @@ from app.tools.builtin import build_default_registry
 from app.tools.cards import register_card_tools
 from app.tools.planner import compute_plan, register_planner_tools
 from app.tools.opportunities import register_opportunity_tools
+from app.tools.sandbox import register_sandbox_tools
 from app.tools.web import register_web_tools
 from app.tools.courses import register_course_tools
 from app.tools.docs import register_doc_tools
@@ -430,6 +431,8 @@ def build_registry(settings: Settings, backup_dir: Path = DATA_DIR / "file-backu
         register_file_tools(registry, settings.workspace_dir)
         register_file_write_tools(registry, settings.workspace_dir, backup_dir)
         register_doc_tools(registry, settings.workspace_dir)
+        if settings.sandbox_image:
+            register_sandbox_tools(registry, settings.workspace_dir, settings.sandbox_image)
     if settings.github_repos:
         register_github_tools(registry, settings.github_repos, GitHubClient(settings.github_token))
     if settings.github_write_repos:

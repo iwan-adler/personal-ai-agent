@@ -67,6 +67,7 @@ DEFAULT_GRANTS: frozenset[str] = frozenset(
         "courses.write",
         "cards.read",
         "cards.write",
+        "sandbox.run",
         "web.read",
         "opportunities.read",
         "opportunities.write",

@@ -3,6 +3,12 @@
 Koda is built in milestones, each gated on the previous one. Design decisions D1–D7
 and their reasons are in [docs/architecture.md](docs/architecture.md).
 
+## Unreleased
+
+- `sandbox_run` (V0.5 slice 6): shell commands in a throwaway Docker container on a
+  copy of the workspace, with no network, a read-only system, an unprivileged user and
+  resource limits. `HIGH_RISK`; needs Docker Desktop and a digest-pinned `SANDBOX_IMAGE`.
+
 ## 1.0.1 (2026-10-17)
 
 - Flashcards: **hard** now follows Anki. Pure SM-2 still multiplied the interval by the
@@ -52,7 +58,7 @@ check → backup) in which only the model is scripted.
   (HIGH_RISK, diff preview, checksum, backups).
 - Read-only GitHub tools for allowlisted repos; publishing comments and issues
   (HIGH_RISK, separate token, secrets refused, full preview).
-- The Linux sandbox is postponed until Docker is installed.
+- The Linux sandbox was postponed until Docker was available (built after 1.0.1).
 
 ## V0.4: memory
 

@@ -65,6 +65,7 @@ flowchart LR
   | `opportunity_scan` | SAFE | Read your `FEEDS` (RSS/Atom) and keep new entries that contain one of your `INTERESTS` |
   | `opportunity_list` | SAFE | Stored opportunities (default: new ones) |
   | `opportunity_save` | CONFIRMATION | Turn an opportunity into the task `Apply: <title>`, with a deadline and course if you give them |
+  | `sandbox_run` | HIGH_RISK | Run a shell command in a throwaway Linux container (Docker) on a **copy** of `WORKSPACE_DIR`: no network, read-only system, unprivileged user, 1 CPU, 512 MB, 60 s. Only with `SANDBOX_IMAGE` set |
   | `github_issue_list` | SAFE | Issues and PRs of a repo in `GITHUB_REPOS`, most recently updated first |
   | `github_issue_read` | SAFE | One issue or PR with its comments (text capped) |
   | `github_pr_list` | SAFE | Pull requests of a repo in `GITHUB_REPOS`, with branches and draft status |
@@ -244,6 +245,7 @@ All settings live in `.env` ([`.env.example`](.env.example) documents each one).
 | `WEB_ALLOWLIST` | *(empty)* | Comma-separated domains `web_fetch` may read, subdomains included (max 50). **Never list shared hosting** such as `github.io` or `blogspot.com`, where anyone can create a subdomain. Empty means no web tools |
 | `FEEDS` | *(empty)* | RSS/Atom feed URLs for the opportunity scout (max 20). Each must be https on a `WEB_ALLOWLIST` domain |
 | `INTERESTS` | *(empty)* | Keywords an entry must contain, as whole words in any case, e.g. `internship,werkstudent,python,c++` |
+| `SANDBOX_IMAGE` | *(empty)* | Docker image for `sandbox_run`, **pinned by digest** (`name@sha256:...`) and pulled once by you; Koda never pulls. Needs `WORKSPACE_DIR` and a running Docker. Empty means no sandbox |
 | `GITHUB_REPOS` | *(empty)* | Comma-separated `owner/name` repos the GitHub tools may read (max 20). Empty means no GitHub tools |
 | `GITHUB_TOKEN` | *(empty)* | Optional. Without it, public repos work at 60 requests/hour. Recommended: a **fine-grained** token limited to those repos, with read-only *Metadata*, *Issues* and *Pull requests*. Removed from the environment once loaded, like the OpenAI key |
 | `GITHUB_WRITE_REPOS` | *(empty)* | Repos the agent may **publish** to; each must also be in `GITHUB_REPOS`. Empty means no write tools |
@@ -276,7 +278,7 @@ tail -n 20 data/audit.jsonl               # macOS / Linux
 python -m pytest
 ```
 
-There are 770 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
+There are 790 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
 
 - the agent loop: repair of malformed output, budgets, repeated-failure and repeated-call stops, the history window, and tool output that tries to break out of its `<tool_result>` block
 - the safety layer: every autonomy level, missing permissions, `HIGH_RISK` always confirming, Level 4 grants, duplicate writes
@@ -294,6 +296,7 @@ There are 770 tests (counting parametrised cases), which run in under a minute w
 - the opportunity scout: RSS and Atom parsing, whole-word matching (also for `c++`), no duplicates across scans, a hostile feed failing alone, feed URLs held to the web rules
 - the web: only https on allowlisted domains (look-alike and suffix tricks refused), no private, loopback or link-local addresses, DNS rebinding unable to move the connection, every redirect rechecked, size and type limits, scripts stripped, XML with DOCTYPE or ENTITY refused
 - GitHub: only allowlisted repos, redirects refused (tested with real local servers), tokens never leaking, secrets refused before any publish prompt, the full text shown before publishing
+- the sandbox: every hardening flag in the docker command, `.env`, keys, `.git`, junctions and hard links left out of the copy, the copy deleted afterwards, a timeout killing the container itself, always asking with the image and command shown; two real-container tests run when Docker and `KODA_SANDBOX_TEST_IMAGE` are available
 - outside content: after reading a file or an issue, Level 4 grants are suspended, so injected text cannot drive a write
 - the planner: earliest deadline first with fixed dates, work stopping the day before a deadline, flashcard time reserved first, exact shortfalls in quarter hours, overdue and due-today warnings
 - flashcards: SM-2 intervals and ease, Anki-style "hard" (x 1.2, at least a day), batches shown in full before saving, card text never sent back to the model, `/quiz` with scripted key presses (again comes back once, stopping keeps progress)
@@ -326,15 +329,15 @@ tests/                 pytest suite
 - **Fact and document search are keyword-based** (SQLite FTS5): they find "DBMS exam" but not a paraphrase like "database test". Scanned PDFs (images without a text layer) yield no text. Local embeddings are planned only if this proves too weak (see D4 in the architecture doc).
 - **Small local models are unreliable at the JSON format.** The repair loop fixes malformed output, but it can't make weak answers better (see the example session).
 - **A tool timeout stops the agent waiting, but can't kill a stuck Python thread.** I/O tools must pass their own timeouts, as documented in `app/tools/base.py`.
-- **No `HIGH_RISK` tools exist yet.** The confirmation path for them is implemented and tested, ready for future file, GitHub or shell tools.
+- **The sandbox needs Docker Desktop** and a digest-pinned image you pulled yourself. A container is strong isolation, but not a virtual machine: a kernel or Docker escape bug would reach the WSL 2 VM. Changes inside the container are thrown away; nothing is copied back.
 
 ## Roadmap
 
 Each milestone is gated on the previous one being used and stable. The full table and its reasoning are in [docs/architecture.md](docs/architecture.md).
 
 - **V0.4:** tasks, sessions and facts in SQLite ✅ done
-- **V0.5:** GitHub, file and sandboxed Linux tools (these will be the first `HIGH_RISK` tools)
+- **V0.5:** GitHub, file and sandboxed Linux tools ✅ done
 - **V0.6–V0.7:** knowledge graph, university tutor, planner and research with citations
-- **V0.8–V0.9:** FastAPI, authentication, dashboard, then Docker and deployment
+- **V0.8–V0.9:** local web interface, health check and backups ✅ done (D7: stay local, no deployment)
 
 Deliberately **not** planned for now: voice, sending email, an unrestricted shell, and LangChain as the core.

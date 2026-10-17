@@ -429,9 +429,32 @@ V0.9's roadmap line said "Docker, deploy". Koda is built for one person on one c
 on a server would need real user accounts, HTTPS, protection from the internet and
 hosting costs: a different security design, not a deployment step. **Chosen: stay
 local.** V0.9 becomes local operations: a health check (`app.doctor`), automatic
-backups of `data/` with a verified restore, and start scripts. Docker is not used
-(not installed; it would only repackage the same local setup); the Linux sandbox
-(V0.5 slice 6) stays postponed until Docker is installed.
+backups of `data/` with a verified restore, and start scripts. Koda itself is not
+put in Docker (it would only repackage the same local setup); Docker is used only
+for the Linux sandbox (V0.5 slice 6, built 2026-10-17, see below).
+
+## Linux sandbox (V0.5 slice 6)
+
+`sandbox_run` runs `sh -c <command>` inside a Docker container, so the container,
+not Koda, is the security boundary. Alternatives considered: running commands on
+Windows directly (no isolation; an unrestricted shell is explicitly not planned),
+WSL without Docker (shares the WSL VM and its access to `C:`), a full VM per command
+(stronger, but slow and heavy). A hardened container is the middle ground:
+
+- `--network none`, `--read-only`, a 64 MB noexec `/tmp`, `--cap-drop ALL`,
+  `no-new-privileges`, user 65534 (nobody), 1 CPU, 512 MB without swap, 128 processes;
+- the only mount is a temporary **copy** of the workspace, made with the same
+  off-limits rules as the file tools (no `.env`, keys, `.git`, links, junctions or
+  hard links) and deleted afterwards; nothing is copied back;
+- the image must be pinned by digest and is never pulled (`--pull never`), so what
+  runs is exactly what you pulled;
+- on timeout the container is killed by name; killing the docker CLI alone would
+  leave it running;
+- `HIGH_RISK` (always asks, never grantable) and outside content (its output can
+  carry injected text, so Level 4 grants are suspended afterwards).
+
+Docker Desktop must be installed by the user (admin rights, Windows features and
+licence acceptance are theirs to give).
 
 ## V0.4+ (not built)
 
@@ -440,7 +463,7 @@ Do not add these until the previous milestone is approved:
 | Version | What | Why wait |
 |---|---|---|
 | V0.4 | ~~SQLite tasks, sessions, facts~~ done | Need a working loop first |
-| V0.5 | GitHub, files, Linux sandbox | Needs safety + confirmations |
+| V0.5 | ~~GitHub, files, Linux sandbox~~ done | Needs safety + confirmations |
 | V0.6 | ~~Document library, courses, tutor (flashcards + /quiz)~~ done | Needs durable facts |
 | V0.7 | ~~Planner, web access (D6), opportunity scout, citations rule~~ done | Needs tasks + citations rule |
 | V0.8 | ~~Pending approval + resume, FastAPI + HTMX UI with token auth, dashboard~~ done (D5) | Needs data to show |

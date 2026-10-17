@@ -67,6 +67,7 @@ def env_file(monkeypatch, tmp_path):
         "INTERESTS",
         "WEB_UI_PORT",
         "BACKUP_DIR",
+        "SANDBOX_IMAGE",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
