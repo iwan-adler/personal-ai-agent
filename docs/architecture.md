@@ -125,9 +125,9 @@ the approval id plus its one-time value. Jinja2 renders with autoescape, the CSP
 `selfRequestsOnly` on, so text from the model or tools can never become markup or
 code. The page shows the saved session (messages and final replies), not internal
 tool results. Tested over real HTTP against a local uvicorn, and clicked through in
-a browser with a scripted model. `/dashboard` is read-only (no forms): the plan from
-`compute_plan`, open tasks, courses, flashcard counts and new opportunities, whose
-links (stored http(s) only) carry `rel="noopener noreferrer nofollow"`.
+a browser with a scripted model. `/dashboard` was read-only at first; since the
+study-partner upgrade it edits tasks directly (see below). Opportunity links (stored
+http(s) only) carry `rel="noopener noreferrer nofollow"`.
 
 ### Deferred approvals (V0.8, first step of D5)
 
@@ -455,6 +455,32 @@ WSL without Docker (shares the WSL VM and its access to `C:`), a full VM per com
 
 Docker Desktop must be installed by the user (admin rights, Windows features and
 licence acceptance are theirs to give).
+
+## Study-partner upgrade (2026-10-17)
+
+The web UI became the main way to use Koda, so it grew three parts:
+
+- **Chat**: model replies are rendered as Markdown by `app/web_ui/markdown.py`, a small
+  renderer written for Koda instead of a library (no new dependency, and no HTML
+  sanitizer to trust): every piece of text is escaped *first*, then only our own tags
+  are added; links are made for `https://` only. Tests feed it injection attempts and
+  check the output with an HTML parser against a short list of allowed tags and
+  attributes. The sidebar lists recent sessions (reopen = `/resume`, delete =
+  `/forget-session`, same audit events).
+- **Study Mode** (`app/tutor.py`, `app/memory/study.py`, migration 9): a tutor loop
+  separate from the agent, with **no tools**, so whatever the model writes can only be
+  shown. It answers in JSON (message, feedback, verdict, one question). Python keeps
+  the score: a verdict counts only for an answer to an open question, "I don't know"
+  always counts as incorrect, texts are cut to fixed lengths, malformed output gets one
+  repair and is then shown as it came. Study time is the time between your actions,
+  at most 5 minutes each. If the model call fails, nothing is stored.
+- **Dashboard edits tasks** (D5 update): create, edit, complete, reopen and delete.
+  Alternative considered: keep the dashboard read-only and route every change through
+  the chat. Rejected for tasks because these are the user's own clicks with the exact
+  values shown, not model proposals, so an approval step would only ask "did you mean
+  the button you just pressed?". They keep every web protection (cookie, Host, Origin,
+  CSRF) and are audited by task id only. The model still changes tasks only through
+  its tools and the safety layer.
 
 ## V0.4+ (not built)
 

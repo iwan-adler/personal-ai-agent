@@ -1,0 +1,141 @@
+<section class="welcome-card">
+  <div>
+    <p class="date">{{ today.strftime("%A, %d %B") }}</p>
+    <h1>{{ greeting }}{% if user_name %}, {{ user_name }}{% endif %} 👋</h1>
+    <p class="summary">
+      {% set due_now = groups.today|length + groups.overdue|length %}
+      {% if due_now %}You have <strong>{{ due_now }}</strong> task{{ "s" if due_now != 1 }} due today or overdue.{% else %}Nothing due today.{% endif %}
+      {% if cards and cards.due %} <strong>{{ cards.due }}</strong> flashcard{{ "s" if cards.due != 1 }} to review.{% endif %}
+      {% if study_today_min %} You studied <strong>{{ study_today_min }} min</strong> today.{% endif %}
+    </p>
+  </div>
+  <div class="welcome-actions">
+    <a class="button primary" href="/study">🎓 Start studying</a>
+    <details class="name-edit">
+      <summary>{{ "Change name" if user_name else "Set your name" }}</summary>
+      <form class="inline-form" hx-post="/prefs/name" hx-target="#dash-body">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input name="name" value="{{ user_name or '' }}" maxlength="40" placeholder="Your name" aria-label="Your name">
+        <button type="submit">Save</button>
+      </form>
+    </details>
+  </div>
+</section>
+
+<div class="stats">
+  <div class="stat"><span class="num">{{ groups.today|length }}</span><span class="lbl">due today</span></div>
+  <div class="stat{% if groups.overdue %} alert{% endif %}"><span class="num">{{ groups.overdue|length }}</span><span class="lbl">overdue</span></div>
+  <div class="stat"><span class="num">{{ study_today_min }}<small> min</small></span><span class="lbl">studied today</span></div>
+  <div class="stat"><span class="num">{{ (study_week_min / 60)|round(1) }}<small> h</small></span><span class="lbl">studied this week</span></div>
+</div>
+
+<div class="dash-grid">
+  <section class="card tasks-card">
+    <div class="card-head">
+      <h2>Tasks</h2>
+      <span class="hint">{{ open_count }} open</span>
+    </div>
+    <form class="add-task" hx-post="/tasks" hx-target="#dash-body">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input name="title" maxlength="200" required placeholder="Add a task, e.g. Finish DBMS assignment" aria-label="New task title">
+      <input type="date" name="due" aria-label="Due date">
+      <select name="course" aria-label="Course">
+        <option value="">No course</option>
+        {% for c in courses %}<option value="{{ c.id }}">{{ c.code }}</option>{% endfor %}
+      </select>
+      <input type="number" name="estimate" min="0.25" max="200" step="0.25" placeholder="Hours" aria-label="Estimate in hours">
+      <button type="submit" class="primary">Add</button>
+    </form>
+
+    {% for key, label in [("overdue", "Overdue"), ("today", "Today"), ("upcoming", "Next 14 days"), ("later", "Later / no date")] %}
+      {% if groups[key] %}
+        <h3 class="group-label{% if key == 'overdue' %} late{% endif %}">{{ label }}</h3>
+        <ul class="task-list">{% for t in groups[key] %}{% include "_task_row.html" %}{% endfor %}</ul>
+      {% endif %}
+    {% endfor %}
+    {% if not open_count %}
+      <div class="empty"><div class="empty-ico">✅</div><p>No open tasks. Add one above, or ask Koda in the chat.</p></div>
+    {% endif %}
+    {% if done_recent %}
+      <details class="done-recent">
+        <summary>Recently completed ({{ done_recent|length }})</summary>
+        <ul class="task-list">{% for t in done_recent %}{% include "_task_row.html" %}{% endfor %}</ul>
+      </details>
+    {% endif %}
+  </section>
+
+  <div class="dash-side">
+    <section class="card">
+      <h2>Subject progress</h2>
+      {% if subjects %}
+        <ul class="subjects">
+        {% for s in subjects %}
+          <li>
+            <div class="subject-head"><span class="tag">{{ s.code }}</span><span class="subject-name">{{ s.name }}</span>
+              {% if s.total %}<span class="hint">{{ s.done }}/{{ s.total }} tasks</span>{% endif %}</div>
+            {% if s.total %}<div class="bar"><span data-fill="{{ s.percent }}"></span></div>{% endif %}
+            <div class="hint small">{{ s.minutes }} min studied{% if s.cards %} · {{ s.cards_due }} of {{ s.cards }} cards due{% endif %}{% if s.next_due %} · next deadline {{ s.next_due }}{% endif %}</div>
+          </li>
+        {% endfor %}
+        </ul>
+      {% else %}
+        <div class="empty"><p>No subjects yet. Add a course in the chat ("add course DBMS Database Systems") or start a study session.</p></div>
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <h2>Recent study</h2>
+      {% if recent_study %}
+        <ul class="list">
+        {% for s in recent_study %}
+          <li><a href="/study/{{ s.id }}"><span class="tag">{{ s.subject }}</span>{{ s.topic }}</a>
+            <span class="hint small">· {{ s.answered }} answered{% if s.score_percent is not none %}, {{ s.score_percent }}%{% endif %} · {{ s.minutes }} min</span></li>
+        {% endfor %}
+        </ul>
+      {% else %}
+        <div class="empty"><p>No study sessions yet. <a href="/study">Start one</a>.</p></div>
+      {% endif %}
+    </section>
+  </div>
+</div>
+
+<section class="card wide">
+  <div class="card-head"><h2>Weekly study planner</h2><span class="hint">Planned from your deadlines and estimates</span></div>
+  {% if plan %}
+    {% if plan.assumed_default_hours %}<p class="hint">No STUDY_HOURS set: assuming 2 h per day.</p>{% endif %}
+    <div class="week">
+    {% for day in plan.days %}
+      <div class="day{% if day.date == today %} is-today{% endif %}">
+        <div class="day-head"><strong>{{ day.date.strftime("%a") }}</strong> <span class="hint">{{ day.date.strftime("%d %b") }}</span></div>
+        <div class="bar"><span data-fill="{{ ((day.planned_hours / day.capacity_hours * 100) if day.capacity_hours else 0)|round|int }}"></span></div>
+        <div class="hint small">{{ "%g"|format(day.planned_hours) }} / {{ "%g"|format(day.capacity_hours) }} h{% if day.card_minutes %} · {{ "%g"|format(day.card_minutes) }} min cards{% endif %}</div>
+        {% for block in day.blocks %}
+          <div class="block">{{ "%g"|format(block.hours) }} h · {% if block.course %}<span class="tag">{{ block.course }}</span>{% endif %}{{ block.title }}</div>
+        {% else %}<div class="hint small">Free</div>{% endfor %}
+      </div>
+    {% endfor %}
+    </div>
+    {% for warning in plan.warnings %}<p class="warning">⚠ {{ warning }}</p>{% endfor %}
+    {% if plan.unestimated %}<p class="hint">Add an hour estimate to plan: {% for t in plan.unestimated %}{{ t.title }}{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+  {% else %}<p class="hint">Tasks are not configured.</p>{% endif %}
+</section>
+
+<div class="grid">
+  <section class="card">
+    <h2>Flashcards</h2>
+    {% if cards %}
+      <p>{{ cards.due }} due today · {{ cards.reviewed_today }} reviewed today · {{ cards.total }} in total.</p>
+      <p class="hint">Study them with <code>/quiz</code> in the terminal, or ask Koda to make cards from your notes.</p>
+    {% else %}<p class="hint">Flashcards are not configured.</p>{% endif %}
+  </section>
+  <section class="card">
+    <h2>New opportunities</h2>
+    {% if opportunities %}
+      <ul class="list">
+      {% for o in opportunities %}
+        <li><a href="{{ o.link }}" rel="noopener noreferrer nofollow">{{ o.title }}</a> <span class="hint">(matched: {{ o.matched }})</span></li>
+      {% endfor %}
+      </ul>
+    {% else %}<p class="hint">None. Ask Koda to scan your feeds.</p>{% endif %}
+  </section>
+</div>

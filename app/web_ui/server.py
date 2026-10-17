@@ -22,15 +22,14 @@ from app.main import ChatState
 from app.memory.sessions import SessionNotFound
 from app.tutor import Tutor
 from app.web_ui import markdown
+from app.web_ui.dashboard_pages import add_dashboard_routes
 from app.web_ui.study_pages import add_study_routes
-from app.tools.planner import compute_plan
 from app.web_ui.security import COOKIE, SECURITY_HEADERS, Guard
 
 HERE = Path(__file__).resolve().parent
 STATIC = HERE.parent / "web" / "static"
 MAX_MESSAGE_CHARS = 4_000
 RECENT_CHATS = 30
-DASHBOARD_DAYS = 7
 
 
 def _templates() -> Jinja2Templates:
@@ -116,21 +115,6 @@ def create_app(agent: AgentLoop, state: ChatState, guard: Guard) -> FastAPI:
             state.session_id = None
         return _secure(Response(status_code=204, headers={"HX-Redirect": "/"}))
 
-    @app.get("/dashboard", response_class=HTMLResponse)
-    def dashboard(request: Request):
-        """Read-only overview: it never changes anything, so it has no forms."""
-        plan = compute_plan(state.tasks, state.cards, state.study_hours, DASHBOARD_DAYS) if state.tasks else None
-        return render(
-            request,
-            "dashboard.html",
-            page="dashboard",
-            plan=plan,
-            tasks=state.tasks.list(status="open", limit=50) if state.tasks else [],
-            courses=state.courses.list() if state.courses else [],
-            cards=state.cards.stats() if state.cards else None,
-            opportunities=state.opportunities.list("new", 20) if state.opportunities else [],
-        )
-
     @app.post("/chat", response_class=HTMLResponse)
     def chat(request: Request, message: str = Form(""), csrf: str = Form("")):
         if not guard.csrf_ok(csrf):
@@ -170,6 +154,7 @@ def create_app(agent: AgentLoop, state: ChatState, guard: Guard) -> FastAPI:
             return turn(request, None, None, error=str(exc))
         return turn(request, run, None)
 
+    add_dashboard_routes(app, state=state, render=render, csrf_ok=guard.csrf_ok, plain=_plain)
     if state.study is not None:
         add_study_routes(app, state=state, tutor=Tutor(agent.llm), render=render, csrf_ok=guard.csrf_ok,
                          plain=_plain, secure=_secure)

@@ -1,0 +1,36 @@
+<li class="task{% if t.status == 'done' %} done{% endif %}" id="task-{{ t.id }}">
+  {% if t.status == 'done' %}
+    <button type="button" class="check checked" title="Mark as not done" aria-label="Mark as not done"
+            hx-post="/tasks/{{ t.id }}/reopen" hx-vals='{"csrf": "{{ csrf }}"}' hx-target="#dash-body">✓</button>
+  {% else %}
+    <button type="button" class="check" title="Mark as done" aria-label="Mark as done"
+            hx-post="/tasks/{{ t.id }}/done" hx-vals='{"csrf": "{{ csrf }}"}' hx-target="#dash-body"></button>
+  {% endif %}
+  <div class="task-main">
+    <div class="task-title">{{ t.title }}</div>
+    <div class="task-meta">
+      {% if t.course %}<span class="tag">{{ t.course }}</span>{% endif %}
+      {% if t.due_date %}<span class="due{% if t.status != 'done' and t.due_date < today.isoformat() %} late{% elif t.due_date == today.isoformat() %} today{% endif %}">📅 {{ t.due_date }}</span>{% endif %}
+      {% if t.estimate_hours %}<span class="hint">⏱ {{ "%g"|format(t.estimate_hours) }} h</span>{% endif %}
+    </div>
+    {% if t.status != 'done' %}
+    <details class="task-edit">
+      <summary>Edit</summary>
+      <form class="inline-form" hx-post="/tasks/{{ t.id }}/edit" hx-target="#dash-body">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input name="title" value="{{ t.title }}" maxlength="200" required aria-label="Title">
+        <input type="date" name="due" value="{{ t.due_date or '' }}" aria-label="Due date">
+        <select name="course" aria-label="Course">
+          <option value="">No course</option>
+          {% for c in courses %}<option value="{{ c.id }}"{% if c.id == t.course_id %} selected{% endif %}>{{ c.code }}</option>{% endfor %}
+        </select>
+        <input type="number" name="estimate" value="{{ '%g'|format(t.estimate_hours) if t.estimate_hours else '' }}" min="0.25" max="200" step="0.25" placeholder="Hours" aria-label="Estimate in hours">
+        <button type="submit" class="primary">Save</button>
+      </form>
+    </details>
+    {% endif %}
+  </div>
+  <button type="button" class="icon-btn" title="Delete task" aria-label="Delete task"
+          hx-post="/tasks/{{ t.id }}/delete" hx-vals='{"csrf": "{{ csrf }}"}' hx-target="#dash-body"
+          hx-confirm="Delete this task for good?">🗑</button>
+</li>

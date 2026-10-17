@@ -73,7 +73,8 @@ def _now() -> datetime:
 
 
 def _stamp(moment: datetime) -> str:
-    return moment.isoformat(timespec="seconds")
+    # Always UTC, so stored times compare correctly as text.
+    return moment.astimezone(timezone.utc).isoformat(timespec="seconds")
 
 
 class StudyStore:

@@ -281,7 +281,8 @@ def test_dashboard_shows_plan_tasks_courses_cards_and_opportunities(make_server)
     assert "DBMS exam" in body and "Not enough time" in body  # the plan's warning
     assert "Database Systems" in body and "1 due today" in body
     assert '<a href="https://jobs.example.org/1" rel="noopener noreferrer nofollow">Werkstudent Python</a>' in body
-    assert "<form" not in body  # read-only: nothing on this page can change data
+    # Since the study-partner upgrade the dashboard edits tasks: every form carries the CSRF value.
+    assert body.count("<form") == body.count(f'name="csrf" value="{server.guard.csrf}"')
 
 
 def test_dashboard_escapes_everything_and_needs_the_token(make_server):
@@ -358,3 +359,71 @@ def test_chat_history_open_and_delete(make_server):
     assert status == 204 and headers["hx-redirect"] == "/"
     assert server.state.session_id is None and f'href="/c/{first}"' not in server.request("GET", "/")[2]
     assert server.request("POST", f"/c/{first}/delete", body={"csrf": server.guard.csrf})[0] == 404
+
+
+# --- Dashboard task controls --------------------------------------------------------------------------
+
+
+def _post(server, path, **body):
+    return server.request("POST", path, body={"csrf": server.guard.csrf, **body})
+
+
+def test_dashboard_creates_edits_completes_and_deletes_tasks(make_server):
+    from datetime import date, timedelta
+
+    server = make_server()
+    course = server.state.courses.add("DBMS", "Database Systems", None)
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    status, headers, body = _post(server, "/tasks", title="Read chapter 4", due=tomorrow, course=str(course.id), estimate="2.5")
+    assert status == 200 and "Read chapter 4" in body and json.loads(headers["hx-trigger"]) == {"toast": "Task added."}
+    task = server.state.tasks.list()[0]
+    assert (task.due_date, task.course, task.estimate_hours) == (tomorrow, "DBMS", 2.5)
+
+    assert _post(server, f"/tasks/{task.id}/edit", title="Read chapter 5", due="", course="", estimate="")[0] == 200
+    task = server.state.tasks.get(task.id)
+    assert (task.title, task.due_date, task.course_id, task.estimate_hours) == ("Read chapter 5", None, None, None)
+
+    assert _post(server, f"/tasks/{task.id}/done")[0] == 200 and server.state.tasks.get(task.id).status == "done"
+    assert _post(server, f"/tasks/{task.id}/done")[0] == 400  # already done
+    assert _post(server, f"/tasks/{task.id}/reopen")[0] == 200 and server.state.tasks.get(task.id).status == "open"
+    assert _post(server, f"/tasks/{task.id}/delete")[0] == 200 and server.state.tasks.list("all") == []
+    assert _post(server, f"/tasks/{task.id}/delete")[0] == 404
+
+
+@pytest.mark.parametrize("fields", [
+    {"title": ""}, {"title": "x" * 201}, {"title": "ok", "due": "next friday"}, {"title": "ok", "due": "1900-01-01"},
+    {"title": "ok", "course": "999"}, {"title": "ok", "course": "abc"}, {"title": "ok", "estimate": "0"},
+    {"title": "ok", "estimate": "1e9"}, {"title": "ok", "estimate": "lots"},
+])
+def test_dashboard_rejects_bad_task_values(make_server, fields):
+    server = make_server()
+    status, _, text = _post(server, "/tasks", **{"due": "", "course": "", "estimate": "", **fields})
+    assert status == 400 and text and server.state.tasks.list("all") == []
+
+
+def test_dashboard_changes_need_csrf_and_same_origin(make_server):
+    """Security: another website cannot add or delete your tasks."""
+    server = make_server()
+    task = server.state.tasks.add("keep me")
+    assert server.request("POST", "/tasks", body={"title": "x", "csrf": "wrong"})[0] == 403
+    assert server.request("POST", f"/tasks/{task.id}/delete", body={"csrf": "wrong"})[0] == 403
+    assert server.request("POST", f"/tasks/{task.id}/delete", body={"csrf": server.guard.csrf},
+                          origin="http://evil.example")[0] == 403
+    assert server.request("POST", f"/tasks/{task.id}/explode", body={"csrf": server.guard.csrf})[0] == 404
+    assert [t.title for t in server.state.tasks.list()] == ["keep me"]
+
+
+def test_dashboard_logs_ids_not_titles(make_server, tmp_path):
+    server = make_server()
+    _post(server, "/tasks", title="Secret project name", due="", course="", estimate="")
+    log = (tmp_path / "audit.jsonl").read_text(encoding="utf-8")
+    assert '"task_ui_add"' in log and "Secret project name" not in log
+
+
+def test_welcome_name_and_study_time(make_server):
+    server = make_server()
+    assert "Set your name" in server.request("GET", "/dashboard")[2]
+    body = _post(server, "/prefs/name", name="  Ana  ")[2]
+    assert ", Ana 👋" in body
+    assert _post(server, "/prefs/name", name="x" * 41)[0] == 400
+    assert "<script>" not in _post(server, "/prefs/name", name="<script>x</script>")[2]

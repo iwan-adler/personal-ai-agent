@@ -106,6 +106,44 @@ class TaskStore:
             )
             return self._get(conn, task_id)
 
+    def update(self, task_id: int, title: str, due_date: date | None, course_id: int | None,
+               estimate_hours: float | None) -> Task:
+        """Change a task's details (from the dashboard; the model uses its own tools)."""
+        with self.db.connect() as conn:
+            self._get(conn, task_id)
+            conn.execute(
+                "UPDATE tasks SET title = ?, due_date = ?, course_id = ?, estimate_hours = ? WHERE id = ?",
+                (title, due_date.isoformat() if due_date else None, course_id, estimate_hours, task_id),
+            )
+            return self._get(conn, task_id)
+
+    def reopen(self, task_id: int) -> Task:
+        with self.db.connect() as conn:
+            self._get(conn, task_id)
+            conn.execute("UPDATE tasks SET status = 'open', completed_at = NULL WHERE id = ?", (task_id,))
+            return self._get(conn, task_id)
+
+    def delete(self, task_id: int) -> None:
+        with self.db.connect() as conn:
+            self._get(conn, task_id)
+            conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+
+    def recently_done(self, limit: int = 5) -> list[Task]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                f"{_SELECT} WHERE t.status = 'done' ORDER BY t.completed_at DESC, t.id DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [Task(**dict(row)) for row in rows]
+
+    def progress_by_course(self) -> dict[int, tuple[int, int]]:
+        """course id -> (done, total) tasks."""
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT course_id, SUM(status = 'done') AS done, COUNT(*) AS total FROM tasks"
+                " WHERE course_id IS NOT NULL GROUP BY course_id"
+            ).fetchall()
+        return {row["course_id"]: (int(row["done"]), int(row["total"])) for row in rows}
+
     @staticmethod
     def _get(conn: sqlite3.Connection, task_id: int | None) -> Task:
         row = conn.execute(f"{_SELECT} WHERE t.id = ?", (task_id,)).fetchone()
