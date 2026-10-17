@@ -85,6 +85,24 @@ that pass the same URL check are returned. For feeds, `parse_xml_safely` refuses
 any DOCTYPE or ENTITY declaration and non-ASCII-compatible encodings before the
 standard parser (expat 2.8, which itself refuses entity expansion) sees them.
 
+### Web interface (V0.8, implements D5)
+
+`python -m app.web_ui` serves FastAPI with server-rendered HTMX on **127.0.0.1
+only**, through the same `AgentLoop` (built by `main.build_agent`) in deferred mode,
+so every safety step is the CLI's. `app/web_ui/security.py` enforces D5's rules
+before any route: the Host header must be this server (DNS rebinding); every
+request needs the session token, a 32-byte value printed as a link at startup and
+then kept in an HttpOnly, SameSite=Strict cookie (the redirect drops it from the
+URL, and uvicorn's access log is off); every POST needs a same-origin `Origin`, a
+`Sec-Fetch-Site` of same-origin if sent, and the page's CSRF value; approvals carry
+the approval id plus its one-time value. Jinja2 renders with autoescape, the CSP is
+`default-src 'none'; script-src 'self'; style-src 'self'` (no inline code), and htmx
+(vendored, 2.0.11) runs with `allowEval` and `allowScriptTags` off and
+`selfRequestsOnly` on, so text from the model or tools can never become markup or
+code. The page shows the saved session (messages and final replies), not internal
+tool results. Tested over real HTTP against a local uvicorn, and clicked through in
+a browser with a scripted model.
+
 ### Deferred approvals (V0.8, first step of D5)
 
 `AgentLoop(defer_approvals=True)` does not call `confirm()`. A call that needs an

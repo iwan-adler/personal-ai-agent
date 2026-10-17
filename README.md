@@ -186,6 +186,14 @@ Each launch starts a new session; it is saved from your first message on.
 
 > **Privacy:** your messages, the agent's replies and saved facts are stored **unencrypted** in `data/agent.db`, and backups of overwritten files in `data/file-backups/`. The file is gitignored, but anyone with access to your computer can read it. The audit log never contains them, only ids.
 
+### Web interface
+
+```bash
+python -m app.web_ui
+```
+
+Prints a one-time link such as `http://127.0.0.1:8765/?token=…`. Opening it signs you in (the token moves into an HttpOnly, SameSite=Strict cookie and leaves the address bar). The page offers the same agent as the CLI: when a tool needs your approval, a card shows exactly what the terminal would ask, with **Approve** and **Decline**; the run continues where it paused. Keep the link private: anyone with it can use the agent while the server runs. The server only listens on `127.0.0.1`, refuses requests for other host names, other sites' form posts and pages without the token, and renders every model and tool text escaped under a strict Content-Security-Policy.
+
 ### Sources and citations
 
 Answers based on your documents or a fetched page cite them in square brackets, e.g. `[dbms/lecture3.pdf, p. 12]` or `[https://en.wikipedia.org/wiki/Join]`. After every answer, Python compares each citation with the sources the agent **actually read in that request**. Anything else is flagged at the end of the answer:
@@ -206,6 +214,7 @@ All settings live in `.env` ([`.env.example`](.env.example) documents each one).
 | `MAX_REPAIR_ATTEMPTS` | `2` | Times to ask the model to fix malformed JSON (0–5) |
 | `LLM_TIMEOUT_SECONDS` | `60` | Per API call; the SDK retries up to 2 more times |
 | `STUDY_HOURS` | *(empty)* | Study hours per weekday for the planner, e.g. `mon=2,tue=2,wed=3,thu=2,fri=1,sat=4,sun=0` (0–16 each, missing days are 0). Empty means 2 h every day, and the plan says so |
+| `WEB_UI_PORT` | `8765` | Port of the local web interface (1024–65535); it only ever listens on `127.0.0.1` |
 | `MAX_HISTORY_MESSAGES` | `20` | Recent messages sent to the model each turn (4–200) |
 | `WORKSPACE_DIR` | *(empty)* | Absolute path of the only folder the file tools may read, e.g. `C:\Users\you\Documents\koda-workspace`. Empty means no file tools. Not allowed: a drive root, your home folder itself, or a folder containing this project |
 | `WEB_ALLOWLIST` | *(empty)* | Comma-separated domains `web_fetch` may read, subdomains included (max 50). **Never list shared hosting** such as `github.io` or `blogspot.com`, where anyone can create a subdomain. Empty means no web tools |
@@ -243,7 +252,7 @@ tail -n 20 data/audit.jsonl               # macOS / Linux
 python -m pytest
 ```
 
-There are 714 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
+There are 735 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
 
 - the agent loop: repair of malformed output, budgets, repeated-failure and repeated-call stops, the history window, and tool output that tries to break out of its `<tool_result>` block
 - the safety layer: every autonomy level, missing permissions, `HIGH_RISK` always confirming, Level 4 grants, duplicate writes
@@ -253,6 +262,7 @@ There are 714 tests (counting parametrised cases), which run in under a minute w
 - the task workflow end to end: request → confirmation → SQLite → audit, including declined confirmations, invalid dates, missing permissions, persistence across sessions, and audit-write failures (the tool must not run)
 - sessions and facts: tool results never saved, FTS5 syntax in search queries treated as plain text, saving facts always asks, deleting only by command, schema migrations keeping old data
 - files: Windows path tricks (`..`, drives, UNC, `file:stream`, `CON`, trailing dots, junctions, hard links) refused, overwrites only with the right checksum, backups, nothing half-written
+- the web interface, over real HTTP against a local server: wrong Host headers (DNS rebinding), missing tokens, cross-site posts, CSRF, escaping of scripts and fake buttons, strict security headers, approvals that are forged or replayed, localhost-only binding
 - deferred approvals: pausing a run, continuing the same run after the answer, wrong one-time values refused without cancelling, answers counting once, expiry, grants, taint and duplicate history surviving the pause
 - the citations rule: only sources read in the same request count, harmless formatting differences still match, invented sources flagged, ordinary brackets ignored
 - the opportunity scout: RSS and Atom parsing, whole-word matching (also for `c++`), no duplicates across scans, a hostile feed failing alone, feed URLs held to the web rules
@@ -283,7 +293,7 @@ tests/                 pytest suite
 
 ## Limitations
 
-- **CLI only**, for a single local user.
+- **Single local user.** The CLI and the local web interface (`python -m app.web_ui`) serve one person on one computer; there is no multi-user login and no remote access.
 - **Stored data is not encrypted.** Sessions and facts sit in `data/agent.db` in plain text.
 - **The citation check only shows that a source was read**, not that it says what the answer claims. Citations from an earlier request in the same session count as unverified, and Markdown links are not checked.
 - **Web access is limited to `WEB_ALLOWLIST`** (D6), and it does not use system proxies, because connections are pinned to the checked IP address. There is no web search.

@@ -68,6 +68,8 @@ class Settings(BaseModel):
     max_repair_attempts: int = Field(default=2, ge=0, le=5)
     llm_timeout_seconds: int = Field(default=60, ge=1, le=600)
     max_history_messages: int = Field(default=20, ge=4, le=200)
+    # Port of the local web UI (python -m app.web_ui), always on 127.0.0.1.
+    web_ui_port: int = Field(default=8765, ge=1024, le=65535)
     # The only folder the file tools can reach; None means no file tools at all.
     workspace_dir: Path | None = None
     # Study hours per weekday, Monday first; None means the planner assumes a default.
@@ -311,6 +313,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
             max_repair_attempts=_int_env("MAX_REPAIR_ATTEMPTS", 2),
             llm_timeout_seconds=_int_env("LLM_TIMEOUT_SECONDS", 60),
             max_history_messages=_int_env("MAX_HISTORY_MESSAGES", 20),
+            web_ui_port=_int_env("WEB_UI_PORT", 8765),
             workspace_dir=os.getenv("WORKSPACE_DIR"),
             study_hours=os.getenv("STUDY_HOURS", ""),
             web_allowlist=os.getenv("WEB_ALLOWLIST", ""),

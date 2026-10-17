@@ -65,6 +65,7 @@ def env_file(monkeypatch, tmp_path):
         "WEB_ALLOWLIST",
         "FEEDS",
         "INTERESTS",
+        "WEB_UI_PORT",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")

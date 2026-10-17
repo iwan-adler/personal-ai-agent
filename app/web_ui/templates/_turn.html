@@ -1,0 +1,10 @@
+{% if user_text %}<div class="msg user">{{ user_text }}</div>{% endif %}
+{% if error %}<div class="msg error">{{ error }}</div>{% endif %}
+{% if run %}
+  {% if run.status == "AWAITING_APPROVAL" %}
+    {% with p = run.pending %}{% include "_approval.html" %}{% endwith %}
+  {% else %}
+    <div class="msg assistant status-{{ run.status|lower }}">{{ run.final_text }}</div>
+  {% endif %}
+{% endif %}
+{% with oob = true %}{% include "_message_box.html" %}{% endwith %}

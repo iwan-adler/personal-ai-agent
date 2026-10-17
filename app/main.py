@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import sys
 from collections import Counter
@@ -13,7 +14,7 @@ from app.agent.loop import AgentLoop
 from app.audit import AuditLog
 from app.config import PROJECT_ROOT, ConfigError, Settings, load_settings
 from app.conversation import Conversation
-from app.llm.client import LLMClient, LLMError
+from app.llm.client import Completer, LLMClient, LLMError
 from app.logging_setup import setup_logging
 from app.memory.db import Database
 from app.memory.cards import GRADE_NAMES, CardNotFound, CardStore
@@ -440,6 +441,50 @@ def build_registry(settings: Settings, backup_dir: Path = DATA_DIR / "file-backu
     return registry
 
 
+def build_agent(
+    settings: Settings,
+    logger: logging.Logger,
+    *,
+    confirm: Callable[[str], bool] | None = None,
+    defer_approvals: bool = False,
+    data_dir: Path = DATA_DIR,
+    llm: Completer | None = None,
+) -> tuple[AgentLoop, ChatState]:
+    """Everything a session needs, shared by the CLI and the web UI. Raises
+    OSError or sqlite3.Error if the data folder cannot be opened."""
+    db = Database(data_dir / "agent.db")
+    task_store = TaskStore(db)
+    sessions = SessionStore(db)
+    facts = FactStore(db)
+    docs = DocumentStore(db)
+    courses = CourseStore(db)
+    cards = CardStore(db)
+    opportunities = OpportunityStore(db)
+    audit = AuditLog(data_dir / "audit.jsonl")
+    registry = build_registry(settings, backup_dir=data_dir / "file-backups")
+    safety = SafetyLayer(
+        registry,
+        allowed_permissions=DEFAULT_GRANTS,
+        autonomy=settings.autonomy_level,
+    )
+    agent = AgentLoop(
+        settings=settings,
+        llm=llm or LLMClient(settings),
+        registry=registry,
+        safety=safety,
+        logger=logger,
+        confirm=confirm,
+        tool_ctx=ToolContext(task_store=task_store, fact_store=facts, doc_store=docs, course_store=courses,
+                             card_store=cards, opportunity_store=opportunities),
+        audit=audit,
+        defer_approvals=defer_approvals,
+    )
+    state = ChatState(sessions=sessions, audit=audit, facts=facts, docs=docs, courses=courses,
+                      cards=cards, tasks=task_store, study_hours=settings.study_hours,
+                      opportunities=opportunities)
+    return agent, state
+
+
 def main() -> int:
     try:
         settings = load_settings()
@@ -449,44 +494,14 @@ def main() -> int:
 
     logger = setup_logging(settings.log_level)
     try:
-        db = Database(DATA_DIR / "agent.db")
-        task_store = TaskStore(db)
-        sessions = SessionStore(db)
-        facts = FactStore(db)
-        docs = DocumentStore(db)
-        courses = CourseStore(db)
-        cards = CardStore(db)
-        opportunities = OpportunityStore(db)
-        audit = AuditLog(DATA_DIR / "audit.jsonl")
+        agent, state = build_agent(settings, logger, confirm=_confirm)
     except (OSError, sqlite3.Error) as exc:
         print(f"Storage error: could not open {DATA_DIR}: {exc}", file=sys.stderr)
         return 1
 
-    registry = build_registry(settings)
-    safety = SafetyLayer(
-        registry,
-        allowed_permissions=DEFAULT_GRANTS,
-        autonomy=settings.autonomy_level,
-    )
-    llm = LLMClient(settings)
-    agent = AgentLoop(
-        settings=settings,
-        llm=llm,
-        registry=registry,
-        safety=safety,
-        logger=logger,
-        confirm=_confirm,
-        tool_ctx=ToolContext(task_store=task_store, fact_store=facts, doc_store=docs, course_store=courses,
-                             card_store=cards, opportunity_store=opportunities),
-        audit=audit,
-    )
-    state = ChatState(sessions=sessions, audit=audit, facts=facts, docs=docs, courses=courses,
-                      cards=cards, tasks=task_store, study_hours=settings.study_hours,
-                      opportunities=opportunities)
-
     print("Personal AI Agent (quit / exit to stop)")
     print(f"model={settings.openai_model} autonomy={int(settings.autonomy_level)}")
-    print(f"data={task_store.path} audit={audit.path}")
+    print(f"data={state.sessions.db.path} audit={state.audit.path}")
     print(f"workspace={settings.workspace_dir or '(not set: no file tools)'}")
     print("Type /help for session commands.")
     print()

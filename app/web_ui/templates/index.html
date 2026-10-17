@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {# htmx must never run code from server responses, and never talk to other hosts. #}
+  <meta name="htmx-config" content='{"allowEval": false, "allowScriptTags": false, "selfRequestsOnly": true, "includeIndicatorStyles": false}'>
+  <title>Koda</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/htmx.min.js"></script>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Koda</h1>
+    <p class="hint">Local only. Every action that changes something asks you first.</p>
+  </header>
+  <section id="log" aria-live="polite">
+    {% for role, content in history %}
+      <div class="msg {{ role }}">{{ content }}</div>
+    {% endfor %}
+    {% for p in pending %}
+      {% include "_approval.html" %}
+    {% endfor %}
+  </section>
+  <form class="composer" hx-post="/chat" hx-target="#log" hx-swap="beforeend">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    {% include "_message_box.html" %}
+    <button type="submit">Send</button>
+  </form>
+</main>
+</body>
+</html>

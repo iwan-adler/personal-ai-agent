@@ -1,0 +1,11 @@
+<div class="approval risk-{{ (p.risk or 'unknown')|lower }}" id="approval-{{ p.approval_id }}">
+  <p class="label">Approval needed: <strong>{{ p.tool }}</strong> ({{ p.risk }})</p>
+  <pre class="prompt">{{ p.prompt }}</pre>
+  <form hx-post="/approve" hx-target="closest .approval" hx-swap="outerHTML">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="approval_id" value="{{ p.approval_id }}">
+    <input type="hidden" name="nonce" value="{{ p.nonce }}">
+    <button type="submit" name="answer" value="approve" class="approve">Approve</button>
+    <button type="submit" name="answer" value="decline" class="decline">Decline</button>
+  </form>
+</div>
