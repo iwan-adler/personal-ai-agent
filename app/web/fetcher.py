@@ -31,6 +31,7 @@ MAX_REDIRECTS = 5
 SOCKET_TIMEOUT_SECONDS = 10.0
 REDIRECT_STATUSES = {301, 302, 303, 307, 308}
 PAGE_TYPES = frozenset({"text/html", "text/plain", "application/xhtml+xml"})
+FEED_TYPES = frozenset({"application/rss+xml", "application/atom+xml", "application/xml", "text/xml"})
 USER_AGENT = "koda-personal-agent"
 
 # host -> resolved addresses. Replaced in tests.

@@ -145,6 +145,23 @@ MIGRATIONS: list[str] = [
     ALTER TABLE tasks ADD COLUMN estimate_hours REAL
         CHECK (estimate_hours IS NULL OR (estimate_hours > 0 AND estimate_hours <= 200));
     """,
+    # 8: opportunity scout (V0.7). A local cache of matching feed entries; the
+    # link is unique, so re-scanning never stores an entry twice.
+    """
+    CREATE TABLE opportunities (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        link       TEXT NOT NULL UNIQUE,
+        title      TEXT NOT NULL,
+        summary    TEXT NOT NULL,
+        feed_url   TEXT NOT NULL,
+        published  TEXT,
+        matched    TEXT NOT NULL,           -- comma-separated keywords that matched
+        status     TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'saved', 'dismissed')),
+        found_at   TEXT NOT NULL,
+        task_id    INTEGER REFERENCES tasks(id) ON DELETE SET NULL
+    );
+    CREATE INDEX opportunities_by_status ON opportunities (status, id);
+    """,
 ]
 
 

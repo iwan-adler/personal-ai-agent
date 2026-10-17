@@ -62,6 +62,9 @@ flowchart LR
   | `file_create` | CONFIRMATION | Create a **new** text file in an existing folder of `WORKSPACE_DIR`; the prompt shows the content |
   | `file_overwrite` | HIGH_RISK | Replace an **existing** file; the prompt shows a diff. Needs the `sha256` from `file_read`, so it only overwrites a file the agent has read and nobody has changed since. The old version is copied to `data/file-backups/` (last 20 kept) |
   | `web_fetch` | SAFE | Read one https page from a domain on `WEB_ALLOWLIST`: its text, title and the links you could follow |
+  | `opportunity_scan` | SAFE | Read your `FEEDS` (RSS/Atom) and keep new entries that contain one of your `INTERESTS` |
+  | `opportunity_list` | SAFE | Stored opportunities (default: new ones) |
+  | `opportunity_save` | CONFIRMATION | Turn an opportunity into the task `Apply: <title>`, with a deadline and course if you give them |
   | `github_issue_list` | SAFE | Issues and PRs of a repo in `GITHUB_REPOS`, most recently updated first |
   | `github_issue_read` | SAFE | One issue or PR with its comments (text capped) |
   | `github_pr_list` | SAFE | Pull requests of a repo in `GITHUB_REPOS`, with branches and draft status |
@@ -167,6 +170,8 @@ Commands (handled by the CLI, never sent to the model):
 | `/forget-session <id>` | Delete a session and its messages permanently (asks first) |
 | `/facts [topic]` | List what the agent remembers about you |
 | `/forget-fact <id>` | Delete a remembered fact permanently (asks first) |
+| `/opportunities [status]` | Opportunities from your feeds: `new` (default), `saved`, `dismissed` or `all` |
+| `/dismiss <id>` | Hide an opportunity (asks first); only you can dismiss, not the model |
 | `/plan [days]` | Your study plan for the next days (default 7, at most 28) |
 | `/quiz [course] [n]` | Study due flashcards: Enter shows the answer, then grade 1 again, 2 hard, 3 good, 4 easy (`q` stops; every grade is saved at once). Runs without the model |
 | `/cards [course]` | List your flashcards with their due dates |
@@ -196,6 +201,8 @@ All settings live in `.env` ([`.env.example`](.env.example) documents each one).
 | `MAX_HISTORY_MESSAGES` | `20` | Recent messages sent to the model each turn (4–200) |
 | `WORKSPACE_DIR` | *(empty)* | Absolute path of the only folder the file tools may read, e.g. `C:\Users\you\Documents\koda-workspace`. Empty means no file tools. Not allowed: a drive root, your home folder itself, or a folder containing this project |
 | `WEB_ALLOWLIST` | *(empty)* | Comma-separated domains `web_fetch` may read, subdomains included (max 50). **Never list shared hosting** such as `github.io` or `blogspot.com`, where anyone can create a subdomain. Empty means no web tools |
+| `FEEDS` | *(empty)* | RSS/Atom feed URLs for the opportunity scout (max 20). Each must be https on a `WEB_ALLOWLIST` domain |
+| `INTERESTS` | *(empty)* | Keywords an entry must contain, as whole words in any case, e.g. `internship,werkstudent,python,c++` |
 | `GITHUB_REPOS` | *(empty)* | Comma-separated `owner/name` repos the GitHub tools may read (max 20). Empty means no GitHub tools |
 | `GITHUB_TOKEN` | *(empty)* | Optional. Without it, public repos work at 60 requests/hour. Recommended: a **fine-grained** token limited to those repos, with read-only *Metadata*, *Issues* and *Pull requests*. Removed from the environment once loaded, like the OpenAI key |
 | `GITHUB_WRITE_REPOS` | *(empty)* | Repos the agent may **publish** to; each must also be in `GITHUB_REPOS`. Empty means no write tools |
@@ -228,7 +235,7 @@ tail -n 20 data/audit.jsonl               # macOS / Linux
 python -m pytest
 ```
 
-There are 670 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
+There are 688 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
 
 - the agent loop: repair of malformed output, budgets, repeated-failure and repeated-call stops, the history window, and tool output that tries to break out of its `<tool_result>` block
 - the safety layer: every autonomy level, missing permissions, `HIGH_RISK` always confirming, Level 4 grants, duplicate writes
@@ -238,6 +245,7 @@ There are 670 tests (counting parametrised cases), which run in under a minute w
 - the task workflow end to end: request → confirmation → SQLite → audit, including declined confirmations, invalid dates, missing permissions, persistence across sessions, and audit-write failures (the tool must not run)
 - sessions and facts: tool results never saved, FTS5 syntax in search queries treated as plain text, saving facts always asks, deleting only by command, schema migrations keeping old data
 - files: Windows path tricks (`..`, drives, UNC, `file:stream`, `CON`, trailing dots, junctions, hard links) refused, overwrites only with the right checksum, backups, nothing half-written
+- the opportunity scout: RSS and Atom parsing, whole-word matching (also for `c++`), no duplicates across scans, a hostile feed failing alone, feed URLs held to the web rules
 - the web: only https on allowlisted domains (look-alike and suffix tricks refused), no private, loopback or link-local addresses, DNS rebinding unable to move the connection, every redirect rechecked, size and type limits, scripts stripped, XML with DOCTYPE or ENTITY refused
 - GitHub: only allowlisted repos, redirects refused (tested with real local servers), tokens never leaking, secrets refused before any publish prompt, the full text shown before publishing
 - outside content: after reading a file or an issue, Level 4 grants are suspended, so injected text cannot drive a write

@@ -63,6 +63,8 @@ def env_file(monkeypatch, tmp_path):
         "GITHUB_WRITE_TOKEN",
         "STUDY_HOURS",
         "WEB_ALLOWLIST",
+        "FEEDS",
+        "INTERESTS",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")

@@ -25,11 +25,16 @@ from pydantic import (
 )
 
 from app.planner import parse_study_hours
+from app.web.fetcher import WebError, check_url
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 MAX_GITHUB_REPOS = 20
 MAX_WEB_DOMAINS = 50
+MAX_FEEDS = 20
+MAX_INTERESTS = 50
+# An interest keyword: letters, digits, spaces, '+', '#', '.', '-' (e.g. 'c++', 'machine learning').
+_INTEREST = re.compile(r"[\w+#. -]{1,40}")
 # One DNS label: letters, digits, hyphens; not starting or ending with a hyphen.
 _DNS_LABEL = re.compile(r"(?!-)[a-z0-9-]{1,63}(?<!-)")
 # GitHub owners: letters, digits, hyphens (max 39). Repo names: letters, digits,
@@ -69,6 +74,27 @@ class Settings(BaseModel):
     study_hours: tuple[float, float, float, float, float, float, float] | None = None
     # Domains web_fetch may reach (subdomains included); empty means no web tools (D6).
     web_allowlist: tuple[str, ...] = ()
+    # Opportunity scout: feed URLs (each must pass the web_fetch URL check) and
+    # the keywords an entry must contain to be kept.
+    feeds: tuple[str, ...] = ()
+    interests: tuple[str, ...] = ()
+
+    @field_validator("feeds", "interests", mode="before")
+    @classmethod
+    def _split_list(cls, value: object) -> object:
+        if isinstance(value, str):
+            return tuple(part.strip() for part in value.split(",") if part.strip())
+        return value
+
+    @field_validator("interests")
+    @classmethod
+    def _interests_ok(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        words = tuple(dict.fromkeys(word.lower() for word in value))
+        if len(words) > MAX_INTERESTS:
+            raise ValueError(f"INTERESTS may list at most {MAX_INTERESTS} keywords")
+        if not all(_INTEREST.fullmatch(word) for word in words):
+            raise ValueError("INTERESTS entries must be short keywords (letters, digits, spaces)")
+        return words
 
     @field_validator("web_allowlist", mode="before")
     @classmethod
@@ -146,6 +172,22 @@ class Settings(BaseModel):
             if not _GITHUB_REPO.fullmatch(repo):
                 raise ValueError(f"{name} entries must look like owner/name")
         return repos
+
+    @model_validator(mode="after")
+    def _feeds_ok(self) -> Settings:
+        # Feeds go through the same D6 checks as web_fetch, so they cannot bypass them.
+        if not self.feeds:
+            return self
+        if len(self.feeds) > MAX_FEEDS:
+            raise ValueError(f"FEEDS may list at most {MAX_FEEDS} URLs")
+        if not self.web_allowlist:
+            raise ValueError("FEEDS needs WEB_ALLOWLIST: every feed host must be on it")
+        for url in self.feeds:
+            try:
+                check_url(url, self.web_allowlist)
+            except WebError as exc:
+                raise ValueError(f"FEEDS entry refused: {exc}") from None
+        return self
 
     @model_validator(mode="after")
     def _write_access_ok(self) -> Settings:
@@ -272,6 +314,8 @@ def load_settings(env_file: Path | None = None) -> Settings:
             workspace_dir=os.getenv("WORKSPACE_DIR"),
             study_hours=os.getenv("STUDY_HOURS", ""),
             web_allowlist=os.getenv("WEB_ALLOWLIST", ""),
+            feeds=os.getenv("FEEDS", ""),
+            interests=os.getenv("INTERESTS", ""),
             # pop for the same reason as OPENAI_API_KEY above.
             github_token=os.environ.pop("GITHUB_TOKEN", ""),
             github_repos=os.getenv("GITHUB_REPOS", ""),

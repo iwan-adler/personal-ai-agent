@@ -20,6 +20,7 @@ from app.memory.cards import GRADE_NAMES, CardNotFound, CardStore
 from app.memory.courses import CourseNotFound, CourseStore
 from app.memory.documents import DocumentNotFound, DocumentStore
 from app.memory.facts import FactNotFound, FactStore
+from app.memory.opportunities import OpportunityNotFound, OpportunityStore
 from app.memory.sessions import SessionNotFound, SessionStore
 from app.memory.tasks import TaskStore
 from app.planner import format_plan
@@ -28,6 +29,7 @@ from app.tools.base import ToolContext, ToolRegistry
 from app.tools.builtin import build_default_registry
 from app.tools.cards import register_card_tools
 from app.tools.planner import compute_plan, register_planner_tools
+from app.tools.opportunities import register_opportunity_tools
 from app.tools.web import register_web_tools
 from app.tools.courses import register_course_tools
 from app.tools.docs import register_doc_tools
@@ -59,6 +61,8 @@ HELP = """Commands:
   /facts [topic]          list what the agent remembers about you
   /forget-fact <id>       delete a remembered fact permanently
   /plan [days]            your study plan for the next days (default 7)
+  /opportunities [status] opportunities found in your feeds (new, saved, dismissed, all)
+  /dismiss <id>           hide an opportunity
   /quiz [course] [n]      study due flashcards (no model involved)
   /cards [course]         list your flashcards
   /forget-card <id>       delete a flashcard and its review history
@@ -82,6 +86,7 @@ class ChatState:
     cards: CardStore | None = None
     tasks: TaskStore | None = None
     study_hours: tuple[float, ...] | None = None
+    opportunities: OpportunityStore | None = None
     conversation: Conversation = field(default_factory=Conversation)
     # Created on the first saved turn, so launching and quitting leaves no empty session.
     session_id: int | None = None
@@ -105,6 +110,33 @@ def _parse_id(arg: str | None) -> int | None:
         return int(arg) if arg is not None else None
     except ValueError:
         return None
+
+
+def _opportunity_command(command: str, arg: str | None, state: ChatState, confirm: Callable[[str], bool]) -> str:
+    if state.opportunities is None:
+        return "The opportunity scout is not configured (set FEEDS)."
+    if command == "/opportunities":
+        status = (arg or "new").lower()
+        if status not in {"new", "saved", "dismissed", "all"}:
+            return "Usage: /opportunities [new|saved|dismissed|all]"
+        items = state.opportunities.list(status, limit=50)  # type: ignore[arg-type]
+        if not items:
+            which = "" if status == "all" else f" with status {status}"
+            return f"No opportunities{which}. Ask the agent to scan your feeds."
+        return "\n".join(
+            f"  #{o.id}  [{o.status}] {o.title}\n        {o.link}  (matched: {o.matched or '-'})" for o in items
+        )
+    target = _parse_id(arg)
+    if target is None:
+        return "Usage: /dismiss <id>"
+    try:
+        item = state.opportunities.get(target)
+    except OpportunityNotFound:
+        return f"Opportunity {target} not found."
+    if not confirm(f"Dismiss opportunity #{target} ({item.title})?"):
+        return "Kept."
+    state.opportunities.set_status(target, "dismissed")
+    return f"Dismissed opportunity #{target}."
 
 
 QUIZ_DEFAULT_CARDS = 20
@@ -265,6 +297,9 @@ def handle_command(line: str, state: ChatState, confirm: Callable[[str], bool] =
     parts = line.split()
     command, arg = parts[0].lower(), (parts[1] if len(parts) > 1 else None)
 
+    if command in {"/opportunities", "/dismiss"}:
+        return _opportunity_command(command, arg, state, confirm)
+
     if command == "/plan":
         if state.tasks is None:
             return "Tasks are not configured."
@@ -386,6 +421,8 @@ def build_registry(settings: Settings, backup_dir: Path = DATA_DIR / "file-backu
     register_planner_tools(registry, settings.study_hours)
     if settings.web_allowlist:
         register_web_tools(registry, settings.web_allowlist)
+    if settings.feeds:
+        register_opportunity_tools(registry, settings.feeds, settings.web_allowlist, settings.interests)
     if settings.workspace_dir is not None:
         register_file_tools(registry, settings.workspace_dir)
         register_file_write_tools(registry, settings.workspace_dir, backup_dir)
@@ -419,6 +456,7 @@ def main() -> int:
         docs = DocumentStore(db)
         courses = CourseStore(db)
         cards = CardStore(db)
+        opportunities = OpportunityStore(db)
         audit = AuditLog(DATA_DIR / "audit.jsonl")
     except (OSError, sqlite3.Error) as exc:
         print(f"Storage error: could not open {DATA_DIR}: {exc}", file=sys.stderr)
@@ -439,11 +477,12 @@ def main() -> int:
         logger=logger,
         confirm=_confirm,
         tool_ctx=ToolContext(task_store=task_store, fact_store=facts, doc_store=docs, course_store=courses,
-                             card_store=cards),
+                             card_store=cards, opportunity_store=opportunities),
         audit=audit,
     )
     state = ChatState(sessions=sessions, audit=audit, facts=facts, docs=docs, courses=courses,
-                      cards=cards, tasks=task_store, study_hours=settings.study_hours)
+                      cards=cards, tasks=task_store, study_hours=settings.study_hours,
+                      opportunities=opportunities)
 
     print("Personal AI Agent (quit / exit to stop)")
     print(f"model={settings.openai_model} autonomy={int(settings.autonomy_level)}")

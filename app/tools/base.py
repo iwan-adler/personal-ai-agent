@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from app.memory.courses import CourseStore
     from app.memory.documents import DocumentStore
     from app.memory.facts import FactStore
+    from app.memory.opportunities import OpportunityStore
     from app.memory.tasks import TaskStore
 
 
@@ -37,6 +38,8 @@ class ToolContext:
     course_store: CourseStore | None = None
     # Flashcards; None means card tools report "not configured".
     card_store: CardStore | None = None
+    # Opportunity scout cache; None means the scout tools report "not configured".
+    opportunity_store: OpportunityStore | None = None
 
 
 TRUNCATION_MARKER = "…[truncated]"

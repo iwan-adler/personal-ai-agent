@@ -85,6 +85,21 @@ that pass the same URL check are returned. For feeds, `parse_xml_safely` refuses
 any DOCTYPE or ENTITY declaration and non-ASCII-compatible encodings before the
 standard parser (expat 2.8, which itself refuses entity expansion) sees them.
 
+### Opportunity scout (V0.7)
+
+`FEEDS` (max 20) must each pass the `web_fetch` URL check against `WEB_ALLOWLIST`,
+checked when settings load, so feeds cannot bypass D6. `opportunity_scan` (SAFE,
+`reads_outside_content`) fetches them through the same pinned path with feed
+content types, parses RSS 2.0 and Atom via `parse_xml_safely`, strips HTML from
+summaries, drops non-http(s) links, and keeps entries containing an `INTERESTS`
+keyword as a whole word (custom boundaries, so `c++` works and `python` does not
+match `pythonic`). Matches go into a local cache (migration 8, `opportunities`, link
+unique); a failing feed is counted, the rest still run. It is SAFE although it writes,
+because it only caches read-only data and its only traffic is GETs to the user's own
+feed URLs. `opportunity_save` (CONFIRMATION) creates `Apply: <title>` with an
+optional deadline (never guessed from text) and course. Only `/dismiss` hides
+entries, so injected text cannot make the model hide an opportunity.
+
 ### Planner (V0.7)
 
 `plan_week` (SAFE, `tasks.read`) and `/plan` show a plan computed by a **pure

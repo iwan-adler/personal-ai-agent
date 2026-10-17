@@ -68,6 +68,8 @@ DEFAULT_GRANTS: frozenset[str] = frozenset(
         "cards.read",
         "cards.write",
         "web.read",
+        "opportunities.read",
+        "opportunities.write",
     }
 )
 
