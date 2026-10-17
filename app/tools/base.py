@@ -94,6 +94,9 @@ class Tool:
     # confirmation prompt instead of the raw args. Read-only; shown to the user
     # only, never sent to the model or written to the audit log.
     preview: Callable[[ToolContext, BaseModel], str] | None = None
+    # Optional: (args, output) -> the citations this call made available, for the
+    # citations rule (app/citations.py). Only for tools that read citable material.
+    cites: Callable[[BaseModel, BaseModel], list[str]] | None = None
 
     def __post_init__(self) -> None:
         # "not > 0" also rejects NaN, which would make join() wait forever.

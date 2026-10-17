@@ -322,6 +322,7 @@ def register_doc_tools(registry: ToolRegistry, workspace: Path) -> None:
             permission="docs.read",
             risk=RiskLevel.SAFE,
             handler=lambda ctx, args: _doc_search(_store(ctx), args, course_id_for(ctx, args.course)),
+            cites=lambda args, out: [hit.citation for hit in out.hits],
             max_output_bytes=16_384,
             reads_outside_content=True,
         )

@@ -85,6 +85,19 @@ that pass the same URL check are returned. For feeds, `parse_xml_safely` refuses
 any DOCTYPE or ENTITY declaration and non-ASCII-compatible encodings before the
 standard parser (expat 2.8, which itself refuses entity expansion) sees them.
 
+### Citations rule (V0.7)
+
+Tools that read citable material declare it: `Tool.cites(args, output)` returns the
+citations a call made available (`doc_search`: each hit's citation; `web_fetch`: the
+requested and the final URL), collected per request in `AgentRun.sources`. After the
+final reply, `app/citations.py` takes every bracketed part that looks like a
+citation (a URL, `p. N`, `line N`, or a .pdf/.md/.txt name; `[optional]` and
+Markdown links are ignored), normalises it (case, spacing, URL fragment and trailing
+slash), and flags those matching no source with a line appended to the reply. The
+audit log records only the count. The system prompt tells the model to cite exactly
+as given and only what it read in this request. It proves a source was read, not
+that it supports the claim.
+
 ### Opportunity scout (V0.7)
 
 `FEEDS` (max 20) must each pass the `web_fetch` URL check against `WEB_ALLOWLIST`,
@@ -358,7 +371,7 @@ Do not add these until the previous milestone is approved:
 | V0.4 | ~~SQLite tasks, sessions, facts~~ done | Need a working loop first |
 | V0.5 | GitHub, files, Linux sandbox | Needs safety + confirmations |
 | V0.6 | ~~Document library, courses, tutor (flashcards + /quiz)~~ done | Needs durable facts |
-| V0.7 | Planner, opportunity scout, research | Needs tasks + citations rule |
+| V0.7 | ~~Planner, web access (D6), opportunity scout, citations rule~~ done | Needs tasks + citations rule |
 | V0.8 | FastAPI + HTMX, auth, dashboard (see D5; starts with pending approval + resume) | Needs data to show |
 | V0.9 | Docker, deploy, monitoring | Needs an API worth shipping |
 | V1.0 | Personal AI OS | Composition of the above |

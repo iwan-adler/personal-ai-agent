@@ -85,6 +85,8 @@ def register_web_tools(
             permission="web.read",
             risk=RiskLevel.SAFE,
             handler=lambda ctx, args: _web_fetch(allowlist, resolver, transport, args),
+            # Both the requested and the final URL (after redirects) may be cited.
+            cites=lambda args, out: [args.url, out.url],
             timeout_seconds=TOOL_TIMEOUT_SECONDS,
             max_output_bytes=16_384,
             reads_outside_content=True,

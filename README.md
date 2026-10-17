@@ -8,7 +8,7 @@ The model never runs anything itself. Each turn it replies with a JSON decision:
 
 It works with OpenAI, any OpenAI-compatible API (Groq and others), or a **free local model through Ollama**.
 
-> Status: milestone **V0.6**: conversation, tools, agent loop and audit log; tasks, sessions and facts in SQLite (V0.4); workspace file tools and GitHub (V0.5, the Linux sandbox is postponed); a document library with citations, courses and flashcards (V0.6). Planned features like a planner and a dashboard are **not built yet**. See the [roadmap](docs/architecture.md).
+> Status: milestone **V0.7**: conversation, tools, agent loop and audit log; tasks, sessions and facts in SQLite (V0.4); workspace file tools and GitHub (V0.5, the Linux sandbox is postponed); a document library, courses and flashcards (V0.6); a planner, allowlisted web access, an opportunity scout and a citation check (V0.7). The web interface and dashboard (V0.8) are **not built yet**. See the [roadmap](docs/architecture.md).
 
 ## Why build it this way
 
@@ -186,6 +186,14 @@ Each launch starts a new session; it is saved from your first message on.
 
 > **Privacy:** your messages, the agent's replies and saved facts are stored **unencrypted** in `data/agent.db`, and backups of overwritten files in `data/file-backups/`. The file is gitignored, but anyone with access to your computer can read it. The audit log never contains them, only ids.
 
+### Sources and citations
+
+Answers based on your documents or a fetched page cite them in square brackets, e.g. `[dbms/lecture3.pdf, p. 12]` or `[https://en.wikipedia.org/wiki/Join]`. After every answer, Python compares each citation with the sources the agent **actually read in that request**. Anything else is flagged at the end of the answer:
+
+```
+⚠ Unverified source(s), not read in this request: [dbms/lecture9.pdf, p. 7]
+```
+
 ## Configuration
 
 All settings live in `.env` ([`.env.example`](.env.example) documents each one).
@@ -235,7 +243,7 @@ tail -n 20 data/audit.jsonl               # macOS / Linux
 python -m pytest
 ```
 
-There are 688 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
+There are 703 tests (counting parametrised cases), which run in under a minute with **no network and no API cost**; most of that time is spent creating temporary files and databases. A `FakeLLMClient` replays scripted model replies, and a fake transport replays GitHub's answers. The tests cover:
 
 - the agent loop: repair of malformed output, budgets, repeated-failure and repeated-call stops, the history window, and tool output that tries to break out of its `<tool_result>` block
 - the safety layer: every autonomy level, missing permissions, `HIGH_RISK` always confirming, Level 4 grants, duplicate writes
@@ -245,6 +253,7 @@ There are 688 tests (counting parametrised cases), which run in under a minute w
 - the task workflow end to end: request → confirmation → SQLite → audit, including declined confirmations, invalid dates, missing permissions, persistence across sessions, and audit-write failures (the tool must not run)
 - sessions and facts: tool results never saved, FTS5 syntax in search queries treated as plain text, saving facts always asks, deleting only by command, schema migrations keeping old data
 - files: Windows path tricks (`..`, drives, UNC, `file:stream`, `CON`, trailing dots, junctions, hard links) refused, overwrites only with the right checksum, backups, nothing half-written
+- the citations rule: only sources read in the same request count, harmless formatting differences still match, invented sources flagged, ordinary brackets ignored
 - the opportunity scout: RSS and Atom parsing, whole-word matching (also for `c++`), no duplicates across scans, a hostile feed failing alone, feed URLs held to the web rules
 - the web: only https on allowlisted domains (look-alike and suffix tricks refused), no private, loopback or link-local addresses, DNS rebinding unable to move the connection, every redirect rechecked, size and type limits, scripts stripped, XML with DOCTYPE or ENTITY refused
 - GitHub: only allowlisted repos, redirects refused (tested with real local servers), tokens never leaking, secrets refused before any publish prompt, the full text shown before publishing
@@ -275,6 +284,7 @@ tests/                 pytest suite
 
 - **CLI only**, for a single local user.
 - **Stored data is not encrypted.** Sessions and facts sit in `data/agent.db` in plain text.
+- **The citation check only shows that a source was read**, not that it says what the answer claims. Citations from an earlier request in the same session count as unverified, and Markdown links are not checked.
 - **Web access is limited to `WEB_ALLOWLIST`** (D6), and it does not use system proxies, because connections are pinned to the checked IP address. There is no web search.
 - **Fact and document search are keyword-based** (SQLite FTS5): they find "DBMS exam" but not a paraphrase like "database test". Scanned PDFs (images without a text layer) yield no text. Local embeddings are planned only if this proves too weak (see D4 in the architecture doc).
 - **Small local models are unreliable at the JSON format.** The repair loop fixes malformed output, but it can't make weak answers better (see the example session).
